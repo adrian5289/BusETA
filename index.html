@@ -102,6 +102,9 @@
   .best .eta-row.tap{margin:0 -4px;padding:7px 4px}
   .bell{font-size:12px;color:var(--accent);margin-left:6px}
   .alarm{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:15px;font-weight:600;color:var(--orange);background:#fff4e5;border-radius:14px;padding:12px 14px;margin-bottom:14px}
+  .demo{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:#6b3fa0;background:#f1e8fb;border-radius:12px;padding:9px 12px;margin-bottom:14px}
+  .demo button{border:0;border-radius:999px;background:#6b3fa0;color:#fff;font:inherit;font-size:12px;padding:5px 10px;cursor:pointer}
+  #ver{cursor:pointer}
   .alarm button{border:0;border-radius:999px;background:var(--orange);color:#fff;font:inherit;font-size:13px;padding:6px 12px;cursor:pointer}
 </style>
 </head>
@@ -129,7 +132,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.6.0';   // 每次改版記得更新
+var VERSION       = 'v2.7.0';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -198,7 +201,36 @@ function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
 function stopId(code){ return KNOWN[code] || (stops && stops[code] && stops[code].id) || null; }
 function tabById(id){ return TABS.filter(function(t){ return t.id===id; })[0] || TABS[0]; }
 
+/* ================= 預覽模式(模擬班次,用嚟夜晚測試) ================= */
+var DEMO = /[?&]demo\b/.test(location.search) || load('demo') === true;
+var DEMO_BASE = Date.now();
+function demoData(url){
+  var hkStr = function(t){ return new Date(t + 8*3600e3).toISOString().replace('T',' ').slice(0,19); };
+  var m = /stop-eta\/(\w+)/.exec(url);
+  if(m){
+    var data = [];
+    TABS.forEach(function(tb){ tb.cards.forEach(function(c){
+      if(!c.code || stopId(c.code) !== m[1]) return;
+      c.routes.forEach(function(r, i){
+        [12, 25, 41].forEach(function(off){
+          data.push({ route:r.r, dir:'O', dest_tc:r.hint, eta:new Date(DEMO_BASE + (off + i*4)*60000).toISOString(), rmk_tc:'' });
+        });
+      });
+    }); });
+    return { data:data };
+  }
+  var a = /getSchedule.*sta=(\w+)/.exec(url);
+  if(a){
+    var offs = a[1]==='AIR' ? [4, 14, 24] : [18, 28, 38], d = {};
+    d['AEL-' + a[1]] = { DOWN: offs.map(function(o){ return { dest:'HOK', time:hkStr(DEMO_BASE + o*60000) }; }) };
+    return { data:d };
+  }
+  return null;
+}
+function setDemo(on){ save('demo', on ? true : null); location.href = location.pathname + (on ? '?demo' : ''); }
+
 async function fetchJson(url){
+  if(DEMO){ var fake = demoData(url); if(fake) return fake; }
   var lastErr;
   for(var i=0;i<FETCH_TRIES;i++){
     var ctrl = new AbortController();
@@ -591,7 +623,8 @@ function render(){
   }).join('');
   var alarm = reminder && reminder.fired
     ? '<div class="alarm"><span>🔔 夠鐘出門！' + esc(reminder.route) + ' ' + hm(reminder.t) + ' 到站</span><button class="x-btn" data-clear="rem">知道</button></div>' : '';
-  document.getElementById('content').innerHTML = alarm + tabById(active).cards.map(function(c){
+  var demo = DEMO ? '<div class="demo"><span>🧪 預覽模式：班次係模擬資料</span><button data-demo="off">返回正常版</button></div>' : '';
+  document.getElementById('content').innerHTML = demo + alarm + tabById(active).cards.map(function(c){
     return c.kind==='ael' ? aelCard(c) : kmbCard(c);
   }).join('');
 }
@@ -603,6 +636,7 @@ document.getElementById('tabs').addEventListener('click', function(e){
 });
 
 function onContent(e){
+  if(e.type==='click' && e.target.closest('[data-demo]')){ setDemo(false); return; }
   var x = e.target.closest('.x-btn');
   if(x && e.type==='click'){
     if(x.dataset.clear==='968'){ sel968 = null; save('sel968', null); }
@@ -744,7 +778,11 @@ window.addEventListener('pageshow', function(e){ if(e.persisted){ render(); refr
 
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
 if(!TABS.some(function(t){ return t.id===active; })) active = 'out';
-document.getElementById('ver').textContent = VERSION;
+document.getElementById('ver').textContent = VERSION + (DEMO ? ' · 預覽模式' : '');
+document.getElementById('ver').addEventListener('click', function(){
+  if(DEMO) setDemo(false);
+  else if(confirm('開啟預覽模式？\n會用模擬班次,方便測試出門提醒。')) setDemo(true);
+});
 render(); refresh(); startTimers();
 })();
 </script>
