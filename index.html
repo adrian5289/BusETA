@@ -96,10 +96,7 @@
   .xmsg{font-size:13px;color:var(--dim);padding:2px 0}
   .foot{text-align:center;font-size:12px;color:var(--dim);padding-top:4px}
   .leave b{font-weight:600}
-  .best{background:var(--accent-soft);border-radius:12px;padding:8px 12px 2px;margin-bottom:12px}
-  .best-h{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--accent)}
-  .best-h .rno{font-size:13px;padding:1px 6px}
-  .best .eta-row.tap{margin:0 -4px;padding:7px 4px}
+  .rno.tag{font-size:12px;padding:0 5px;border-width:1.2px;border-radius:6px;margin-right:7px;vertical-align:2px}
   .bell{font-size:12px;color:var(--accent);margin-left:6px}
   .alarm{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:15px;font-weight:600;color:var(--orange);background:#fff4e5;border-radius:14px;padding:12px 14px;margin-bottom:14px}
   .demo{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:#6b3fa0;background:#f1e8fb;border-radius:12px;padding:9px 12px;margin-bottom:14px}
@@ -132,7 +129,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.7.0';   // 每次改版記得更新
+var VERSION       = 'v2.8.0';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -437,7 +434,7 @@ function etaRowHtml(t, opts){
   var h = '<div class="eta-row' + (opts.tap ? ' tap' : '') + (opts.open ? ' open' : '') + '"' +
           (opts.tap ? ' role="button" tabindex="0" data-sel="' + opts.tap + '" data-t="' + t + '"' : '') +
           (opts.tap==='rem' ? ' data-code="' + esc(opts.code) + '" data-route="' + esc(opts.route) + '"' : '') + '>';
-  h += '<div class="when"><div class="arr">' + hm(t) + '<small>' + (opts.verb || '到站') + '</small>' +
+  h += '<div class="when"><div class="arr">' + (opts.tag ? '<span class="rno tag">' + esc(opts.tag) + '</span>' : '') + hm(t) + '<small>' + (opts.verb || '到站') + '</small>' +
        (opts.rmk ? '<span class="rmk">' + esc(opts.rmk) + '</span>' : '') +
        (opts.bell ? '<span class="bell">' + opts.bell + '</span>' : '') + '</div>';
   if(buf) h += slack < 0 ? '<div class="leave late">出門時間已過</div>'
@@ -529,29 +526,33 @@ function panelAEL(){
 }
 
 // 有出門預留時間嘅站:撳一班車就設定出門提醒
-function remRowHtml(card, route, x){
+function remRowHtml(card, route, x, showTag){
   var canCatch = minsTo(x.t) - card.buffer >= 0;
   var on = isReminder(card.code, route, x.t);
   var bell = !on ? '' : reminder.push==='on' ? '🔔 已設推送提醒' : reminder.push==='pending' ? '🔔 設定緊...'
            : reminder.push==='off' ? '🔔 已設提醒(要開住網頁)' : '🔔 已設提醒';
-  return etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:(canCatch || on) ? 'rem' : '', code:card.code, route:route, open:on, bell:bell });
+  return etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:(canCatch || on) ? 'rem' : '', code:card.code, route:route, open:on, bell:bell, tag:showTag ? route : '' });
 }
 function isReminder(code, route, t){
   return !!reminder && reminder.code===code && reminder.route===route && Math.abs(reminder.t - t) <= 90000;
 }
 
-// 同一個站有幾條線(例如 68E / 68F)時,最頂顯示最快嗰班(有出門預留就揀仲趕得切嗰班)
-function bestHtml(card, groups){
-  var best = null;
+// 68E / 68F 同一個站:合埋一個列表,按時間排
+var MERGE_ROUTES = ['68E','68F'];
+function shouldMerge(card){
+  return card.routes.length > 1 && card.routes.every(function(r){ return MERGE_ROUTES.indexOf(r.r) >= 0; });
+}
+function mergeGroups(groups){
+  var times = [], seen = {}, remark = '';
   groups.forEach(function(g){
+    if(!remark && g.remark) remark = g.route + ' ' + g.remark;
     g.times.forEach(function(x){
-      if(card.buffer && minsTo(x.t) - card.buffer < 0) return;
-      if(!best || x.t < best.x.t) best = { route:g.route, x:x };
+      var k = g.route + '|' + x.t; if(seen[k]) return; seen[k] = 1;
+      times.push({ t:x.t, rmk:x.rmk, route:g.route });
     });
   });
-  if(!best) return '';
-  return '<div class="best"><div class="best-h">⚡ 最快一班<span class="rno">' + esc(best.route) + '</span></div>' +
-         (card.buffer ? remRowHtml(card, best.route, best.x) : etaRowHtml(best.x.t, { rmk:best.x.rmk })) + '</div>';
+  times.sort(function(a,b){ return a.t-b.t; });
+  return { merged:true, heads:groups, times:times, remark:remark };
 }
 
 function kmbCard(card){
@@ -564,10 +565,11 @@ function kmbCard(card){
   if(st.error && !st.lastOk) return h + '<div class="err">⚠️ 無法載入數據，請檢查網絡後重新整理</div></section>';
   if(stale) h += '<div class="warn">⚠️ 更新失敗，以下係 ' + new Date(st.lastOk).toLocaleTimeString('en-GB') + ' 嘅舊資料</div>';
   var groups = groupsFor(card, st);
-  if(card.routes.length > 1) h += bestHtml(card, groups);
+  if(shouldMerge(card)) groups = [mergeGroups(groups)];
   groups.forEach(function(g){
-    h += '<div class="route"><div class="route-h"><span class="rno">' + esc(g.route) + '</span>' +
-         (g.dest ? '<span class="dest">往 ' + esc(g.dest) + '</span>' : '') + '</div>';
+    h += '<div class="route"><div class="route-h">' + (g.merged ? g.heads : [g]).map(function(x){
+           return '<span class="rno">' + esc(x.route) + '</span>' + (x.dest ? '<span class="dest">往 ' + esc(x.dest) + '</span>' : '');
+         }).join('') + '</div>';
     var canTap = card.xfer==='968' && g.route==='968';
     var matched = false;
     var selT = sel968 && (sel968.board || sel968.eta);
@@ -579,10 +581,10 @@ function kmbCard(card){
       h += g.remark ? '<div class="none rmk-only">' + esc(g.remark) + '</div>'
                     : '<div class="none">' + (st.lastOk ? '暫無班次資料' : '載入中...') + '</div>';
     }
-    g.times.slice(0,3).forEach(function(x){
+    g.times.slice(0, g.merged ? 5 : 3).forEach(function(x){
       var open = canTap && sel968 && !matched && Math.abs(x.t - selT) <= 90000;
-      if(!canTap && card.buffer){ h += remRowHtml(card, g.route, x); return; }
-      h += etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:canTap ? '968' : '', open:open });
+      if(!canTap && card.buffer){ h += remRowHtml(card, x.route || g.route, x, g.merged); return; }
+      h += etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:canTap ? '968' : '', open:open, tag:g.merged ? x.route : '' });
       if(open){ matched = true; h += panel968(); }
     });
     h += '</div>';
