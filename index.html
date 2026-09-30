@@ -8,6 +8,7 @@
 
 <link rel="apple-touch-icon" href="BUS.jpg" />
 <link rel="icon" href="BUS.jpg" />
+<link rel="manifest" href="manifest.webmanifest" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="九巴到站" />
@@ -128,7 +129,8 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.5.0';   // 每次改版記得更新
+var VERSION       = 'v2.6.0';   // 每次改版記得更新
+var PUSH_API      = '';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
 var FETCH_TRIES   = 2;
@@ -405,7 +407,7 @@ function etaRowHtml(t, opts){
           (opts.tap==='rem' ? ' data-code="' + esc(opts.code) + '" data-route="' + esc(opts.route) + '"' : '') + '>';
   h += '<div class="when"><div class="arr">' + hm(t) + '<small>' + (opts.verb || '到站') + '</small>' +
        (opts.rmk ? '<span class="rmk">' + esc(opts.rmk) + '</span>' : '') +
-       (opts.open && opts.tap==='rem' ? '<span class="bell">🔔 已設提醒</span>' : '') + '</div>';
+       (opts.bell ? '<span class="bell">' + opts.bell + '</span>' : '') + '</div>';
   if(buf) h += slack < 0 ? '<div class="leave late">出門時間已過</div>'
              : '<div class="leave">' + hm(t - buf*60000) + ' 前出門 · <b class="' + colorFor(slack) + '">' +
                (slack <= 0 ? '而家就要出門' : '仲有 ' + slack + ' 分鐘要出門') + '</b></div>';
@@ -498,7 +500,9 @@ function panelAEL(){
 function remRowHtml(card, route, x){
   var canCatch = minsTo(x.t) - card.buffer >= 0;
   var on = isReminder(card.code, route, x.t);
-  return etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:(canCatch || on) ? 'rem' : '', code:card.code, route:route, open:on });
+  var bell = !on ? '' : reminder.push==='on' ? '🔔 已設推送提醒' : reminder.push==='pending' ? '🔔 設定緊...'
+           : reminder.push==='off' ? '🔔 已設提醒(要開住網頁)' : '🔔 已設提醒';
+  return etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:(canCatch || on) ? 'rem' : '', code:card.code, route:route, open:on, bell:bell });
 }
 function isReminder(code, route, t){
   return !!reminder && reminder.code===code && reminder.route===route && Math.abs(reminder.t - t) <= 90000;
@@ -602,7 +606,7 @@ function onContent(e){
   var x = e.target.closest('.x-btn');
   if(x && e.type==='click'){
     if(x.dataset.clear==='968'){ sel968 = null; save('sel968', null); }
-    else if(x.dataset.clear==='rem'){ reminder = null; save('reminder', null); }
+    else if(x.dataset.clear==='rem'){ clearReminder(); }
     else { selAEL = null; save('selAEL', null); }
     render(); return;
   }
@@ -612,12 +616,14 @@ function onContent(e){
   var t = +row.dataset.t;
   if(row.dataset.sel==='rem'){
     var code = row.dataset.code, route = row.dataset.route;
-    if(isReminder(code, route, t)){ reminder = null; save('reminder', null); render(); return; }
+    if(isReminder(code, route, t)){ clearReminder(); render(); return; }
     var card = null;
     TABS.forEach(function(tb){ tb.cards.forEach(function(c){ if(c.code===code && c.buffer) card = c; }); });
-    reminder = { code:code, route:route, t:t, buf:card ? card.buffer : 0, fired:false };
+    clearReminder();
+    reminder = { code:code, route:route, t:t, buf:card ? card.buffer : 0, name:card ? card.name : '', fired:false, push:PUSH_API ? 'pending' : '' };
     save('reminder', reminder);
-    try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
+    if(PUSH_API) setupPush(reminder);
+    else try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
     render(); return;
   }
   if(row.dataset.sel==='968'){
@@ -651,7 +657,50 @@ document.getElementById('refresh').addEventListener('click', refresh);
 /* ================= 排程(切走 app 就暫停) ================= */
 function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); }
 
-/* ================= 出門提醒(要開住網頁先會響) ================= */
+/* ================= 出門提醒 ================= */
+// 有 PUSH_API:交畀推送伺服器,鎖咗機都會收到;冇嘅話要開住網頁先會響
+var vapidPub = null;
+function b64uBytes(s){
+  var bin = atob(s.replace(/-/g,'+').replace(/_/g,'/') + '==='.slice((s.length+3)%4));
+  var out = new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function sameKey(sub, key){
+  var k = sub.options && sub.options.applicationServerKey;
+  if(!k) return false;
+  var a = new Uint8Array(k), b = b64uBytes(key);
+  return a.length===b.length && a.every(function(x,i){ return x===b[i]; });
+}
+async function setupPush(r){
+  var perm = null;
+  try{ perm = Notification.requestPermission(); }catch(e){}   // 一定要喺撳嘅時候即刻問
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('unsupported');
+    if(!perm || (await perm) !== 'granted') throw new Error('denied');
+    var id = stopId(r.code); if(!id) throw new Error('no stop id');
+    var reg = await Promise.race([navigator.serviceWorker.ready, sleep(5000).then(function(){ throw new Error('sw timeout'); })]);
+    if(!vapidPub) vapidPub = (await fetchJson(PUSH_API + '/vapid')).publicKey;
+    var sub = await reg.pushManager.getSubscription();
+    if(sub && !sameKey(sub, vapidPub)){ await sub.unsubscribe(); sub = null; }
+    if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64uBytes(vapidPub) });
+    var res = await fetch(PUSH_API + '/reminders', { method:'POST', headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({ subscription:sub.toJSON(), stopId:id, route:r.route, t:r.t, buf:r.buf, stop:r.name }) });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    var j = await res.json();
+    if(reminder !== r){ cancelPush(j.id); return; }   // 設定期間已經取消或者換咗
+    r.serverId = j.id; r.push = 'on';
+  }catch(e){ if(reminder === r) r.push = 'off'; }
+  if(reminder === r){ save('reminder', r); render(); }
+}
+function cancelPush(id){
+  if(!PUSH_API || !id) return;
+  try{ fetch(PUSH_API + '/reminders/' + id, { method:'DELETE' }).catch(function(){}); }catch(e){}
+}
+function clearReminder(){
+  if(reminder && !reminder.fired) cancelPush(reminder.serverId);
+  reminder = null; save('reminder', null);
+}
 function trackReminder(){
   if(!reminder) return;
   var st = eta[reminder.code];
@@ -672,7 +721,7 @@ function checkReminder(){
   reminder.fired = true; save('reminder', reminder);
   var body = reminder.route + ' ' + hm(reminder.t) + ' 到站';
   try{
-    if('Notification' in window && Notification.permission==='granted'){
+    if(reminder.push!=='on' && 'Notification' in window && Notification.permission==='granted'){
       if(navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.ready.then(function(r){ r.showNotification('夠鐘出門！', { body:body, icon:'BUS.jpg' }); });
       else new Notification('夠鐘出門！', { body:body, icon:'BUS.jpg' });
     }
@@ -693,6 +742,7 @@ document.addEventListener('visibilitychange', function(){
 window.addEventListener('online', refresh);
 window.addEventListener('pageshow', function(e){ if(e.persisted){ render(); refresh(); } });
 
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
 if(!TABS.some(function(t){ return t.id===active; })) active = 'out';
 document.getElementById('ver').textContent = VERSION;
 render(); refresh(); startTimers();

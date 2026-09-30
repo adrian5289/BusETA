@@ -1,0 +1,12 @@
+{
+  "name": "九巴到站時間",
+  "short_name": "九巴到站",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#e6ebf4",
+  "theme_color": "#34599a",
+  "icons": [
+    { "src": "BUS.jpg", "sizes": "980x980", "type": "image/jpeg", "purpose": "any" }
+  ]
+}
