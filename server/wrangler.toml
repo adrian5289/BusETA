@@ -1,0 +1,10 @@
+name = "kmb-eta-push"
+main = "push-worker.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "REMINDERS"
+id = "填入 wrangler kv namespace create 輸出嘅 id"
