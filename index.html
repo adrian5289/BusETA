@@ -94,6 +94,14 @@
   .conn{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;font-variant-numeric:tabular-nums}
   .xmsg{font-size:13px;color:var(--dim);padding:2px 0}
   .foot{text-align:center;font-size:12px;color:var(--dim);padding-top:4px}
+  .leave b{font-weight:600}
+  .best{background:var(--accent-soft);border-radius:12px;padding:8px 12px 2px;margin-bottom:12px}
+  .best-h{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--accent)}
+  .best-h .rno{font-size:13px;padding:1px 6px}
+  .best .eta-row.tap{margin:0 -4px;padding:7px 4px}
+  .bell{font-size:12px;color:var(--accent);margin-left:6px}
+  .alarm{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:15px;font-weight:600;color:var(--orange);background:#fff4e5;border-radius:14px;padding:12px 14px;margin-bottom:14px}
+  .alarm button{border:0;border-radius:999px;background:var(--orange);color:#fff;font:inherit;font-size:13px;padding:6px 12px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -120,7 +128,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.4.3';   // 每次改版記得更新
+var VERSION       = 'v2.5.0';   // 每次改版記得更新
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
 var FETCH_TRIES   = 2;
@@ -173,6 +181,7 @@ var r968 = { ctx:null, map:null, lastOk:null, error:false };
 var active = load('tab') || 'out';
 var sel968 = load('sel968');
 var selAEL = load('selAEL');
+var reminder = load('reminder');   // {code, route, t, buf, fired}
 var refreshing = false, again = false, timers = {};
 
 /* ================= 工具 ================= */
@@ -381,6 +390,7 @@ async function refresh(){
   if(tab.id==='sephb' && sel968) jobs.push(load968Eta());
   await Promise.allSettled(jobs);
   if(need.ael) trackAEL();
+  trackReminder();
   refreshing = false;
   document.getElementById('refresh').classList.remove('spin');
   render();
@@ -391,10 +401,14 @@ async function refresh(){
 function etaRowHtml(t, opts){
   var left = minsTo(t), buf = opts.buffer || 0, slack = left - buf;
   var h = '<div class="eta-row' + (opts.tap ? ' tap' : '') + (opts.open ? ' open' : '') + '"' +
-          (opts.tap ? ' role="button" tabindex="0" data-sel="' + opts.tap + '" data-t="' + t + '"' : '') + '>';
+          (opts.tap ? ' role="button" tabindex="0" data-sel="' + opts.tap + '" data-t="' + t + '"' : '') +
+          (opts.tap==='rem' ? ' data-code="' + esc(opts.code) + '" data-route="' + esc(opts.route) + '"' : '') + '>';
   h += '<div class="when"><div class="arr">' + hm(t) + '<small>' + (opts.verb || '到站') + '</small>' +
-       (opts.rmk ? '<span class="rmk">' + esc(opts.rmk) + '</span>' : '') + '</div>';
-  if(buf) h += slack < 0 ? '<div class="leave late">出門時間已過</div>' : '<div class="leave">' + hm(t - buf*60000) + ' 前出門</div>';
+       (opts.rmk ? '<span class="rmk">' + esc(opts.rmk) + '</span>' : '') +
+       (opts.open && opts.tap==='rem' ? '<span class="bell">🔔 已設提醒</span>' : '') + '</div>';
+  if(buf) h += slack < 0 ? '<div class="leave late">出門時間已過</div>'
+             : '<div class="leave">' + hm(t - buf*60000) + ' 前出門 · <b class="' + colorFor(slack) + '">' +
+               (slack <= 0 ? '而家就要出門' : '仲有 ' + slack + ' 分鐘要出門') + '</b></div>';
   h += '</div>';
   h += slack < 0 ? '<div class="mins red">趕唔切</div>'
                  : '<div class="mins ' + colorFor(slack) + '">' + left + '<small>分鐘</small></div>';
@@ -480,6 +494,30 @@ function panelAEL(){
   return h + '</div></div>';
 }
 
+// 有出門預留時間嘅站:撳一班車就設定出門提醒
+function remRowHtml(card, route, x){
+  var canCatch = minsTo(x.t) - card.buffer >= 0;
+  var on = isReminder(card.code, route, x.t);
+  return etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:(canCatch || on) ? 'rem' : '', code:card.code, route:route, open:on });
+}
+function isReminder(code, route, t){
+  return !!reminder && reminder.code===code && reminder.route===route && Math.abs(reminder.t - t) <= 90000;
+}
+
+// 同一個站有幾條線(例如 68E / 68F)時,最頂顯示最快嗰班(有出門預留就揀仲趕得切嗰班)
+function bestHtml(card, groups){
+  var best = null;
+  groups.forEach(function(g){
+    g.times.forEach(function(x){
+      if(card.buffer && minsTo(x.t) - card.buffer < 0) return;
+      if(!best || x.t < best.x.t) best = { route:g.route, x:x };
+    });
+  });
+  if(!best) return '';
+  return '<div class="best"><div class="best-h">⚡ 最快一班<span class="rno">' + esc(best.route) + '</span></div>' +
+         (card.buffer ? remRowHtml(card, best.route, best.x) : etaRowHtml(best.x.t, { rmk:best.x.rmk })) + '</div>';
+}
+
 function kmbCard(card){
   var st = eta[card.code] || { data:[] };
   var stale = st.lastOk && (st.error || Date.now() - st.lastOk > STALE_MS);
@@ -489,7 +527,9 @@ function kmbCard(card){
   if(st.noId) return h + '<div class="err">搵唔到呢個站，請檢查站牌編號</div></section>';
   if(st.error && !st.lastOk) return h + '<div class="err">⚠️ 無法載入數據，請檢查網絡後重新整理</div></section>';
   if(stale) h += '<div class="warn">⚠️ 更新失敗，以下係 ' + new Date(st.lastOk).toLocaleTimeString('en-GB') + ' 嘅舊資料</div>';
-  groupsFor(card, st).forEach(function(g){
+  var groups = groupsFor(card, st);
+  if(card.routes.length > 1) h += bestHtml(card, groups);
+  groups.forEach(function(g){
     h += '<div class="route"><div class="route-h"><span class="rno">' + esc(g.route) + '</span>' +
          (g.dest ? '<span class="dest">往 ' + esc(g.dest) + '</span>' : '') + '</div>';
     var canTap = card.xfer==='968' && g.route==='968';
@@ -505,6 +545,7 @@ function kmbCard(card){
     }
     g.times.slice(0,3).forEach(function(x){
       var open = canTap && sel968 && !matched && Math.abs(x.t - selT) <= 90000;
+      if(!canTap && card.buffer){ h += remRowHtml(card, g.route, x); return; }
       h += etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:canTap ? '968' : '', open:open });
       if(open){ matched = true; h += panel968(); }
     });
@@ -544,7 +585,9 @@ function render(){
     return '<button class="tab" role="tab" aria-selected="' + (t.id===active) + '" data-tab="' + t.id + '">' +
            '<span class="e">' + t.e + '</span>' + t.name + '</button>';
   }).join('');
-  document.getElementById('content').innerHTML = tabById(active).cards.map(function(c){
+  var alarm = reminder && reminder.fired
+    ? '<div class="alarm"><span>🔔 夠鐘出門！' + esc(reminder.route) + ' ' + hm(reminder.t) + ' 到站</span><button class="x-btn" data-clear="rem">知道</button></div>' : '';
+  document.getElementById('content').innerHTML = alarm + tabById(active).cards.map(function(c){
     return c.kind==='ael' ? aelCard(c) : kmbCard(c);
   }).join('');
 }
@@ -559,6 +602,7 @@ function onContent(e){
   var x = e.target.closest('.x-btn');
   if(x && e.type==='click'){
     if(x.dataset.clear==='968'){ sel968 = null; save('sel968', null); }
+    else if(x.dataset.clear==='rem'){ reminder = null; save('reminder', null); }
     else { selAEL = null; save('selAEL', null); }
     render(); return;
   }
@@ -566,6 +610,16 @@ function onContent(e){
   if(e.type==='keydown' && e.key!=='Enter' && e.key!==' ') return;
   e.preventDefault();
   var t = +row.dataset.t;
+  if(row.dataset.sel==='rem'){
+    var code = row.dataset.code, route = row.dataset.route;
+    if(isReminder(code, route, t)){ reminder = null; save('reminder', null); render(); return; }
+    var card = null;
+    TABS.forEach(function(tb){ tb.cards.forEach(function(c){ if(c.code===code && c.buffer) card = c; }); });
+    reminder = { code:code, route:route, t:t, buf:card ? card.buffer : 0, fired:false };
+    save('reminder', reminder);
+    try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
+    render(); return;
+  }
   if(row.dataset.sel==='968'){
     if(sel968 && Math.abs(t - (sel968.board||sel968.eta)) <= 90000){ sel968 = null; save('sel968', null); render(); return; }
     sel968 = { seq:(r968.ctx ? r968.ctx.boardSeq : 0), eta:t, board:t };
@@ -595,7 +649,37 @@ document.getElementById('refresh').addEventListener('click', refresh);
 })();
 
 /* ================= 排程(切走 app 就暫停) ================= */
-function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
+function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); }
+
+/* ================= 出門提醒(要開住網頁先會響) ================= */
+function trackReminder(){
+  if(!reminder) return;
+  var st = eta[reminder.code];
+  if(st && st.lastOk){
+    var near = st.data.filter(function(d){ return d.route===reminder.route && d.eta; })
+      .map(function(d){ return new Date(d.eta).getTime(); })
+      .filter(function(t){ return Math.abs(t - reminder.t) <= 4*60000; })
+      .sort(function(a,b){ return Math.abs(a-reminder.t) - Math.abs(b-reminder.t); })[0];
+    if(near!=null) reminder.t = near;
+  }
+  if(Date.now() > reminder.t + 2*60000) reminder = null;
+  save('reminder', reminder);
+}
+function checkReminder(){
+  if(!reminder || reminder.fired) return;
+  if(Date.now() > reminder.t + 2*60000){ reminder = null; save('reminder', null); render(); return; }
+  if(Date.now() < reminder.t - reminder.buf*60000) return;
+  reminder.fired = true; save('reminder', reminder);
+  var body = reminder.route + ' ' + hm(reminder.t) + ' 到站';
+  try{
+    if('Notification' in window && Notification.permission==='granted'){
+      if(navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.ready.then(function(r){ r.showNotification('夠鐘出門！', { body:body, icon:'BUS.jpg' }); });
+      else new Notification('夠鐘出門！', { body:body, icon:'BUS.jpg' });
+    }
+  }catch(err){}
+  try{ if(navigator.vibrate) navigator.vibrate([300,150,300]); }catch(err){}
+  render();
+}
 function startTimers(){
   stopTimers(); tick();
   timers.clock = setInterval(tick, 1000);
