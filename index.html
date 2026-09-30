@@ -120,7 +120,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.0.0';   // 每次改版記得更新
+var VERSION       = 'v2.1.0';   // 每次改版記得更新
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
 var FETCH_TRIES   = 2;
@@ -473,7 +473,8 @@ function panel968(){
 function panelAEL(){
   var tsy = selAEL.tsy || selAEL.air + AEL_RIDE_MIN*60000;
   var arrive = tsy + AEL_WALK_MIN*60000;
-  var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣 TY929<span>約 ' + hm(tsy) + ' 到青衣站，行到巴士站約 ' + hm(arrive) + '</span></div>';
+  var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣<span>機場快綫 約 ' + hm(tsy) + ' 到</span></div>';
+  h += '<div class="xmsg">行 ' + AEL_WALK_MIN + ' 分鐘去 TY929，約 ' + hm(arrive) + ' 到巴士站</div>';
   h += connHtml(withStatus(connList('TY929', ['68E'], arrive), arrive));
   return h + '</div></div>';
 }
