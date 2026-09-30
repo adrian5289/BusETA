@@ -129,7 +129,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.8.0';   // 每次改版記得更新
+var VERSION       = 'v2.8.1';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -537,10 +537,21 @@ function isReminder(code, route, t){
   return !!reminder && reminder.code===code && reminder.route===route && Math.abs(reminder.t - t) <= 90000;
 }
 
-// 68E / 68F 同一個站:合埋一個列表,按時間排
-var MERGE_ROUTES = ['68E','68F'];
-function shouldMerge(card){
-  return card.routes.length > 1 && card.routes.every(function(r){ return MERGE_ROUTES.indexOf(r.r) >= 0; });
+// 同一個站有以下路線組合時,合埋一個列表,按時間排
+var MERGE_SETS = [['68E','68F'], ['E36','E36S']];
+function applyMerge(card, groups){
+  MERGE_SETS.forEach(function(set){
+    var hit = card.routes.filter(function(r){ return set.indexOf(r.r) >= 0; });
+    if(hit.length < 2) return;
+    var at = -1, parts = [];
+    groups = groups.filter(function(g, i){
+      if(g.merged || set.indexOf(g.route) < 0) return true;
+      if(at < 0) at = i;
+      parts.push(g); return false;
+    });
+    if(parts.length) groups.splice(Math.min(at, groups.length), 0, mergeGroups(parts));
+  });
+  return groups;
 }
 function mergeGroups(groups){
   var times = [], seen = {}, remark = '';
@@ -565,10 +576,13 @@ function kmbCard(card){
   if(st.error && !st.lastOk) return h + '<div class="err">⚠️ 無法載入數據，請檢查網絡後重新整理</div></section>';
   if(stale) h += '<div class="warn">⚠️ 更新失敗，以下係 ' + new Date(st.lastOk).toLocaleTimeString('en-GB') + ' 嘅舊資料</div>';
   var groups = groupsFor(card, st);
-  if(shouldMerge(card)) groups = [mergeGroups(groups)];
+  groups = applyMerge(card, groups);
   groups.forEach(function(g){
-    h += '<div class="route"><div class="route-h">' + (g.merged ? g.heads : [g]).map(function(x){
-           return '<span class="rno">' + esc(x.route) + '</span>' + (x.dest ? '<span class="dest">往 ' + esc(x.dest) + '</span>' : '');
+    var heads = g.merged ? g.heads : [g];
+    var oneDest = heads.every(function(x){ return String(x.dest||'').replace(/\s/g,'') === String(heads[0].dest||'').replace(/\s/g,''); });   // 目的地一樣就只寫一次
+    h += '<div class="route"><div class="route-h">' + heads.map(function(x, i){
+           var showDest = x.dest && (!oneDest || i === heads.length - 1);
+           return '<span class="rno">' + esc(x.route) + '</span>' + (showDest ? '<span class="dest">往 ' + esc(x.dest) + '</span>' : '');
          }).join('') + '</div>';
     var canTap = card.xfer==='968' && g.route==='968';
     var matched = false;
