@@ -120,14 +120,14 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.4.1';   // 每次改版記得更新
+var VERSION       = 'v2.4.2';   // 每次改版記得更新
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
 var FETCH_TRIES   = 2;
 var STALE_MS      = 90000;
 var TIGHT_MIN     = 3;    // 轉車相差 0–3 分鐘 = 好趕
 var AEL_RIDE_MIN  = 14;   // 機場站去青衣站(找唔到實時資料時用)
-var AEL_WALK_MIN  = 20;   // 青衣月台行去 68E 車站
+var AEL_WALK_MIN  = 8;    // 青衣月台行去 68E 車站
 
 var KMB = 'https://data.etabus.gov.hk/v1/transport/kmb/';
 var MTR = 'https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=AEL&sta=';
@@ -475,7 +475,7 @@ function panel968(){
 function panelAEL(){
   var tsy = selAEL.tsy || selAEL.air + AEL_RIDE_MIN*60000;
   var arrive = tsy + AEL_WALK_MIN*60000;
-  var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣<span>行路' + AEL_WALK_MIN + 'mins 約 ' + hm(arrive) + ' 到</span></div>';
+  var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣<span>行路' + AEL_WALK_MIN + '分鐘 約 ' + hm(arrive) + ' 到</span></div>';
   h += connHtml(withStatus(connList('TY929', ['68E'], arrive), arrive));
   return h + '</div></div>';
 }
