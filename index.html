@@ -112,7 +112,7 @@
 <div id="ptr"></div>
 <main class="wrap">
   <div id="content"></div>
-  <div class="foot">數據來源：KMB / LWB 開放數據、港鐵開放數據</div>
+  <div class="foot">數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
 </main>
 
 <script>
@@ -120,6 +120,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
+var VERSION       = 'v2.0.0';   // 每次改版記得更新
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
 var FETCH_TRIES   = 2;
@@ -607,6 +608,7 @@ window.addEventListener('online', refresh);
 window.addEventListener('pageshow', function(e){ if(e.persisted){ render(); refresh(); } });
 
 if(!TABS.some(function(t){ return t.id===active; })) active = 'out';
+document.getElementById('ver').textContent = VERSION;
 render(); refresh(); startTimers();
 })();
 </script>
