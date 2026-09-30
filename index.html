@@ -129,7 +129,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.8.1';   // 每次改版記得更新
+var VERSION       = 'v2.8.2';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -484,7 +484,7 @@ function connHtml(list){
   if(!list.length) return '<div class="xmsg">暫時未有之後嘅班次資料</div>';
   var ok = list.some(function(c){ return c.ok; });
   return list.map(function(c){
-    return '<div class="conn"><span>' + esc(c.r) + ' ' + hm(c.t) + '</span>' + c.status + '</div>';
+    return '<div class="conn"><span><span class="rno tag">' + esc(c.r) + '</span>' + hm(c.t) + '</span>' + c.status + '</div>';
   }).join('') + (ok ? '' : '<div class="xmsg">之後嘅班次仲未有資料</div>');
 }
 function withStatus(list, arrive){
