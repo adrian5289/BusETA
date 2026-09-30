@@ -63,6 +63,24 @@ iPhone 的網頁推送有以下限制：
 
 ---
 
+## 改用 Bark 推送（可選，通知不會顯示「from ...」）
+
+網頁 app 的推送通知一定會顯示「from 九巴到站」。改用 Bark app 推送，通知就會像原生 app 一樣。
+
+1. 在 App Store 安裝 **Bark**，打開後複製你的網址，例如 `https://api.day.app/abcdEFGH1234/...`，中間那段 `abcdEFGH1234` 就是你的 Key。
+2. Cloudflare → `kmb-eta-push` Worker → **Settings** → **Variables and Secrets** → **Add**：
+   - **Type** 選 **Secret**
+   - **Variable name** 填 `BARK_KEY`
+   - **Value** 貼上你的 Key
+3. 儲存後，重新貼上最新的 [`push-worker.js`](push-worker.js)，然後按 **Deploy**。
+4. 打開 `https://kmb-eta-push.<你的子網域>.workers.dev/vapid`，應該會看到 `"bark":true`。
+
+⚠️ Key 等於你手機的推送地址，**不要**放入網頁程式碼或 GitHub，也不要公開分享。只存在 Cloudflare 的 Secret 裡。
+
+設定 Bark 後，就不需要「加入主畫面」，直接在 Safari 打開網頁也可以設定推送提醒。
+
+---
+
 ## 用指令部署（可選，需要電腦）
 
 ```sh

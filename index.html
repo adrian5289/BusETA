@@ -129,7 +129,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.8.2';   // 每次改版記得更新
+var VERSION       = 'v2.9.0';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -722,15 +722,22 @@ function sameKey(sub, key){
   var a = new Uint8Array(k), b = b64uBytes(key);
   return a.length===b.length && a.every(function(x,i){ return x===b[i]; });
 }
+var pushInfo = null;   // 伺服器設定:{publicKey, bark}
+function loadPushInfo(){
+  if(!PUSH_API || pushInfo) return Promise.resolve(pushInfo);
+  return fetchJson(PUSH_API + '/vapid').then(function(j){ pushInfo = j; return j; }).catch(function(){ return null; });
+}
 async function setupPush(r){
+  if(!pushInfo) await loadPushInfo();
+  if(pushInfo && pushInfo.bark) return setupBark(r);   // 用 Bark:唔使瀏覽器通知權限
   var perm = null;
-  try{ perm = Notification.requestPermission(); }catch(e){}   // 一定要喺撳嘅時候即刻問
+  try{ perm = Notification.requestPermission(); }catch(e){}
   try{
     if(!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('unsupported');
     if(!perm || (await perm) !== 'granted') throw new Error('denied');
     var id = stopId(r.code); if(!id) throw new Error('no stop id');
     var reg = await Promise.race([navigator.serviceWorker.ready, sleep(5000).then(function(){ throw new Error('sw timeout'); })]);
-    if(!vapidPub) vapidPub = (await fetchJson(PUSH_API + '/vapid')).publicKey;
+    if(!vapidPub) vapidPub = (pushInfo || await fetchJson(PUSH_API + '/vapid')).publicKey;
     var sub = await reg.pushManager.getSubscription();
     if(sub && !sameKey(sub, vapidPub)){ await sub.unsubscribe(); sub = null; }
     if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64uBytes(vapidPub) });
@@ -739,6 +746,18 @@ async function setupPush(r){
     if(!res.ok) throw new Error('HTTP ' + res.status);
     var j = await res.json();
     if(reminder !== r){ cancelPush(j.id); return; }   // 設定期間已經取消或者換咗
+    r.serverId = j.id; r.push = 'on';
+  }catch(e){ if(reminder === r) r.push = 'off'; }
+  if(reminder === r){ save('reminder', r); render(); }
+}
+async function setupBark(r){
+  try{
+    var id = stopId(r.code); if(!id) throw new Error('no stop id');
+    var res = await fetch(PUSH_API + '/reminders', { method:'POST', headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({ stopId:id, route:r.route, t:r.t, buf:r.buf, stop:r.name }) });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    var j = await res.json();
+    if(reminder !== r){ cancelPush(j.id); return; }
     r.serverId = j.id; r.push = 'on';
   }catch(e){ if(reminder === r) r.push = 'off'; }
   if(reminder === r){ save('reminder', r); render(); }
@@ -793,6 +812,7 @@ window.addEventListener('online', refresh);
 window.addEventListener('pageshow', function(e){ if(e.persisted){ render(); refresh(); } });
 
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
+loadPushInfo();
 if(!TABS.some(function(t){ return t.id===active; })) active = 'out';
 document.getElementById('ver').textContent = VERSION + (DEMO ? ' · 預覽模式' : '');
 document.getElementById('ver').addEventListener('click', function(){

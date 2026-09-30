@@ -4,12 +4,15 @@
 //   KV 綁定 REMINDERS
 //   Cron Trigger: * * * * *   (每分鐘)
 //   (可選) 環境變數 ALLOWED_ORIGIN,預設 https://adrian5289.github.io
+//   (可選) 密鑰 BARK_KEY:設定咗就用 Bark app 推送(冇「from ...」),唔再用 Web Push
 //
 // 流程:網頁 POST 一個提醒 → 每分鐘用九巴實時到站更新班次時間 →
-//       到出門時間就用 Web Push 推送通知,然後刪除提醒。
+//       到出門時間就推送通知,然後刪除提醒。
 // VAPID 金鑰第一次用時自動產生,存喺 KV。
 
 const KMB_ETA = 'https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/';
+const BARK_API = 'https://api.day.app/push';
+const APP_URL = 'https://adrian5289.github.io/BusETA/';
 const LIST_KEY = 'reminders';
 const VAPID_KEY = 'vapid';
 const MAX_REMINDERS = 50;
@@ -34,19 +37,23 @@ export default {
     try {
       if (req.method === 'GET' && url.pathname === '/vapid') {
         const keys = await vapidKeys(env);
-        return json({ publicKey: keys.publicKey });
+        return json({ publicKey: keys.publicKey, bark: !!env.BARK_KEY });
       }
       if (req.method === 'POST' && url.pathname === '/reminders') {
         const b = await req.json();
-        const sub = b.subscription;
-        if (!sub || typeof sub.endpoint !== 'string' || !sub.keys || !sub.keys.p256dh || !sub.keys.auth)
-          return json({ error: 'bad subscription' }, 400);
-        if (!PUSH_HOSTS.test(new URL(sub.endpoint).hostname)) return json({ error: 'unsupported push service' }, 400);
+        let sub = b.subscription;
+        if (env.BARK_KEY) sub = { endpoint: 'bark' };   // 用 Bark 就唔使瀏覽器訂閱
+        else {
+          if (!sub || typeof sub.endpoint !== 'string' || !sub.keys || !sub.keys.p256dh || !sub.keys.auth)
+            return json({ error: 'bad subscription' }, 400);
+          if (!PUSH_HOSTS.test(new URL(sub.endpoint).hostname)) return json({ error: 'unsupported push service' }, 400);
+          sub = { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } };
+        }
         if (!/^[0-9A-F]{16}$/.test(b.stopId || '') || !/^[0-9A-Z]{1,5}$/.test(b.route || '')) return json({ error: 'bad stop' }, 400);
         const t = Number(b.t), buf = Number(b.buf);
         if (!(t > Date.now() - EXPIRE_AFTER) || !(buf >= 0 && buf <= 120)) return json({ error: 'bad time' }, 400);
         const r = {
-          id: crypto.randomUUID(), sub: { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } },
+          id: crypto.randomUUID(), sub,
           stopId: b.stopId, route: b.route, stop: String(b.stop || '').slice(0, 40), t, buf,
         };
         const list = (await loadList(env)).filter(x => x.sub.endpoint !== r.sub.endpoint);   // 每部機一個提醒
@@ -94,7 +101,7 @@ async function runReminders(env, now = Date.now()) {
 
   const updated = {}, removed = new Set();
   let sent = 0;
-  const keys = await vapidKeys(env);
+  let keys = null;
   for (const r of list) {
     const near = (etas[r.stopId] || [])
       .filter(d => d.route === r.route && d.eta)
@@ -106,7 +113,12 @@ async function runReminders(env, now = Date.now()) {
     if (now > r.t + EXPIRE_AFTER) { removed.add(r.id); continue; }
     if (now >= r.t - r.buf * 60000) {
       const body = r.route + ' ' + hm(r.t) + ' 到站' + (r.stop ? '(' + r.stop + ')' : '');
-      const status = await sendPush(r.sub, { title: '夠鐘出門!', body, tag: 'leave', url: './' }, keys).catch(() => 0);
+      let status = 0;
+      if (r.sub.endpoint === 'bark') status = await sendBark(env, '夠鐘出門!', body).catch(() => 0);
+      else if (!env.BARK_KEY) {
+        keys = keys || await vapidKeys(env);
+        status = await sendPush(r.sub, { title: '夠鐘出門!', body, tag: 'leave', url: './' }, keys).catch(() => 0);
+      }
       if (status >= 200 && status < 300) sent++;
       removed.add(r.id);   // 成功或者訂閱失效 (404/410) 都唔再試
     }
@@ -175,6 +187,19 @@ async function encryptPayload(sub, payload) {
   header[20] = asPublic.length;
   header.set(asPublic, 21);
   return concat(header, cipher);
+}
+
+async function sendBark(env, title, body) {
+  const res = await fetch(BARK_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      device_key: env.BARK_KEY, title, body,
+      group: '九巴到站', icon: APP_URL + 'BUS.jpg', url: APP_URL,
+      level: 'timeSensitive', sound: 'minuet',
+    }),
+  });
+  return res.status;
 }
 
 async function sendPush(sub, data, keys) {
