@@ -2,7 +2,8 @@
 <html lang="zh-HK">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#34599a" />
 <title>九巴到站時間</title>
 
 <link rel="apple-touch-icon" href="BUS.jpg" />
@@ -11,132 +12,603 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="九巴到站" />
 
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
-<style>body{font-family:system-ui,-apple-system,sans-serif;}</style>
+<style>
+  :root{
+    --bg:#e6ebf4; --card:#ffffff; --line:#e5e5ea; --chip:#e5e5ea;
+    --text:#3a3a3c; --sub:#6e6e73; --dim:#8e8e93;
+    --accent:#34599a; --accent-soft:#e3eaf5;
+    --red:#d70015; --orange:#c93400; --green:#248a3d;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,"PingFang HK","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+    padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));
+  }
+  header{
+    position:sticky;top:0;z-index:10;background:var(--accent);color:#fff;
+    padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 12px;
+    border-radius:0 0 22px 22px;box-shadow:0 6px 18px rgba(52,89,154,.25);
+  }
+  .wrap{max-width:32rem;margin:0 auto}
+  .top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.02em}
+  .top-r{display:flex;align-items:center;gap:10px}
+  .clock{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.8)}
+  .icon-btn{width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.16);color:#fff;font-size:17px;cursor:pointer}
+  .icon-btn.spin{animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.icon-btn.spin{animation:none;opacity:.6}}
+  .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+  .tab{
+    border:0;border-radius:12px;padding:9px 4px;background:rgba(255,255,255,.12);color:rgba(255,255,255,.85);
+    font:inherit;font-size:14px;font-weight:600;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:2px;
+  }
+  .tab .e{font-size:18px;line-height:1.1}
+  .tab[aria-selected="true"]{background:#fff;color:var(--accent)}
+  .icon-btn:focus-visible,.tab:focus-visible,.eta-row.tap:focus-visible,.x-btn:focus-visible{outline:2px solid #ffb000;outline-offset:2px}
+
+  #ptr{height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--sub)}
+  main{padding:16px 16px 0}
+  .stop{background:var(--card);border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:0 2px 10px rgba(52,89,154,.08)}
+  .stop-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:10px}
+  .stop-name{font-size:19px;font-weight:700}
+  .stop-code{font-size:12px;color:var(--dim)}
+  .buffer{font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:3px 9px;white-space:nowrap}
+  .stale .route{opacity:.55}
+
+  .route{border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
+  .route:first-of-type{border-top:0;margin-top:0;padding-top:0}
+  .route-h{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+  .rno{border:1.5px solid var(--accent);color:var(--accent);border-radius:7px;padding:2px 8px;font-weight:700;font-size:15px}
+  .dest{font-size:14px;color:var(--sub)}
+
+  .eta-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0}
+  .eta-row.tap{cursor:pointer;border-radius:10px;margin:0 -8px;padding:7px 8px}
+  .eta-row.tap:active{background:var(--chip)}
+  .eta-row.open{background:var(--accent-soft)}
+  .when{display:flex;flex-direction:column;gap:2px}
+  .arr{font-size:16px;font-variant-numeric:tabular-nums}
+  .arr small{font-size:12px;color:var(--dim);margin-left:4px}
+  .arr .rmk{color:var(--dim);font-size:12px;margin-left:6px}
+  .leave{font-size:13px;color:var(--sub)}
+  .leave.late{color:var(--red)}
+  .mins{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+  .mins small{font-size:12px;font-weight:500;margin-left:2px}
+  .red{color:var(--red)} .orange{color:var(--orange)} .green{color:var(--green)}
+  .none{font-size:14px;color:var(--dim);padding:4px 0}
+  .none.rmk-only{color:var(--orange)}
+  .warn{font-size:13px;color:var(--orange);background:#fff4e5;padding:9px 11px;border-radius:10px;margin-bottom:10px}
+  .err{font-size:13px;color:var(--red);background:#fdecee;padding:9px 11px;border-radius:10px}
+  .upd{font-size:12px;color:var(--dim);text-align:right;margin-top:6px}
+
+  .sel-head{display:flex;align-items:center;justify-content:space-between;font-size:14px;color:var(--accent);background:var(--accent-soft);border-radius:10px;padding:7px 8px;margin:0 -8px}
+  .x-btn{border:0;background:none;color:var(--accent);font-size:15px;cursor:pointer;padding:2px 6px}
+  .xfer{background:#f4f6fb;border:1px solid var(--accent-soft);border-radius:14px;padding:12px;margin:4px 0 8px}
+  .xpt{padding:6px 0}
+  .xpt+.xpt{border-top:1px solid var(--line);margin-top:4px;padding-top:10px}
+  .xpt-h{display:flex;flex-wrap:wrap;gap:2px 8px;justify-content:space-between;font-size:15px;font-weight:600;margin-bottom:4px}
+  .xpt-h span{font-weight:400;color:var(--sub);font-size:13px}
+  .conn{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;font-variant-numeric:tabular-nums}
+  .xmsg{font-size:13px;color:var(--dim);padding:2px 0}
+  .foot{text-align:center;font-size:12px;color:var(--dim);padding-top:4px}
+</style>
 </head>
 <body>
-<div id="root"></div>
-<script type="text/babel">
-const { useState, useEffect, useCallback } = React;
-const ETA_OFFSET_MIN = 2;
+<header>
+  <div class="wrap">
+    <div class="top">
+      <h1>九巴到站時間</h1>
+      <div class="top-r">
+        <span class="clock" id="clock">--:--</span>
+        <button class="icon-btn" id="refresh" aria-label="重新整理">↻</button>
+      </div>
+    </div>
+    <div class="tabs" role="tablist" id="tabs"></div>
+  </div>
+</header>
+<div id="ptr"></div>
+<main class="wrap">
+  <div id="content"></div>
+  <div class="foot">數據來源：KMB / LWB 開放數據、港鐵開放數據</div>
+</main>
 
-const PARTS = [
-  { id:'YL292', name:'馬田壆出發', nameEn:'MA TIN POK', code:'YL292', stopId:'C187E3771B7032EC', color:'from-rose-500 to-pink-600',
-    routes:[{route:'68E',dest:'青衣站'},{route:'68F',dest:'元朗公園(循環線)'}] },
-  { id:'YL244', name:'YOHO MIX', nameEn:'YOHO MIX', code:'YL244', stopId:'21DA1E33BF580B96', color:'from-amber-500 to-orange-600',
-    routes:[{route:'68E',dest:'元朗公園'},{route:'68F',dest:'元朗公園(循環線)'}] },
-  { id:'YL242', name:'YOHO I', nameEn:'YOHO I', code:'YL242', stopId:'6A4B371546D489BF', color:'from-emerald-500 to-teal-600',
-    routes:[{route:'68E',dest:'元朗公園'},{route:'68F',dest:'元朗公園(循環線)'}] },
-  { id:'YL255', name:'康樂路', nameEn:'HONG LOK ROAD', code:'YL255', stopId:'8BE58FAD7E9C94C7', color:'from-sky-500 to-blue-600',
-    routes:[{route:'E36',dest:'機場(地面運輸中心)'},{route:'E36S',dest:'機場(地面運輸中心)'},{route:'A36',dest:'機場(地面運輸中心)'}] },
-  { id:'TY929', name:'青衣', nameEn:'TSING YI', code:'TY929', stopId:'83D9B6BE39530EEF', color:'from-violet-500 to-purple-600',
-    routes:[{route:'68E',dest:'元朗公園'}] },
+<script>
+(function(){
+'use strict';
+
+/* ================= 設定 ================= */
+var REFRESH_MS    = 30000;
+var FETCH_TIMEOUT = 8000;
+var FETCH_TRIES   = 2;
+var STALE_MS      = 90000;
+var TIGHT_MIN     = 3;    // 轉車相差 0–3 分鐘 = 好趕
+var AEL_RIDE_MIN  = 14;   // 機場站去青衣站(找唔到實時資料時用)
+var AEL_WALK_MIN  = 20;   // 青衣月台行去 68E 車站
+
+var KMB = 'https://data.etabus.gov.hk/v1/transport/kmb/';
+var MTR = 'https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=AEL&sta=';
+
+// 已知站點 ID;其餘會由九巴站點清單用站牌編號自動對返
+var KNOWN = {
+  YL292:'C187E3771B7032EC', YL244:'21DA1E33BF580B96', YL242:'6A4B371546D489BF',
+  YL255:'8BE58FAD7E9C94C7', TY929:'83D9B6BE39530EEF'
+};
+
+var TABS = [
+  { id:'out', e:'🚪', name:'出門', cards:[
+    { code:'YL292', name:'馬田壆', buffer:10, routes:[{r:'68E',hint:'青衣站'},{r:'68F',hint:'元朗公園(循環線)'}] } ] },
+  { id:'yl', e:'🏡', name:'元朗回家', cards:[
+    { code:'YL244', name:'YOHO MIX', routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] },
+    { code:'YL242', name:'YOHO I',   routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] } ] },
+  { id:'seph', e:'💄', name:'Sephora', cards:[
+    { code:'YL369', name:'同樂街', buffer:20, routes:[{r:'968',hint:'銅鑼灣'}] },
+    { code:'YL392', name:'YOHO II', routes:[{r:'968',hint:'銅鑼灣'}] } ] },
+  { id:'sephb', e:'🌃', name:'Sephora回家', cards:[
+    { code:'CW767', name:'永吉街', xfer:'968', routes:[{r:'968',hint:'元朗'}] },
+    { code:'YL236', name:'大欖隧道轉車站', routes:[{r:'68E',hint:'元朗公園'}] } ] },
+  { id:'air', e:'✈️', name:'機場', cards:[
+    { code:'YL255', name:'康樂路', buffer:15, routes:[{r:'E36',hint:'機場(地面運輸中心)'},{r:'E36S',hint:'機場(地面運輸中心)'},{r:'A36',hint:'機場(地面運輸中心)'}] } ] },
+  { id:'aph', e:'🚆', name:'機場回家', cards:[
+    { kind:'ael', name:'機場站', sub:'港鐵機場快綫' },
+    { code:'TY929', name:'青衣', routes:[{r:'68E',hint:'元朗公園'}] } ] }
 ];
 
-function minsFromNow(iso){ if(!iso)return null; const d=(new Date(iso).getTime()-Date.now())/60000; return Math.round(d)-ETA_OFFSET_MIN; }
-function fmtTime(iso){ if(!iso)return '--:--'; return new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
-function normDest(s){ if(!s)return ''; return s.replace(/[()（）\s]/g,'').replace(/循環線/g,''); }
+// 968 轉車點:用接駁站嘅位置,喺 968 路線搵最近嘅落車站
+var XFER968 = [
+  { name:'大欖隧道轉車站', near:'YL236', routes:['68E'] },
+  { name:'YOHO MIX',       near:'YL244', routes:['68E','68F'] }
+];
 
-function EtaBadge({mins}){
-  if(mins===null) return <span className="text-gray-400 text-sm">--</span>;
-  if(mins<=0) return <span className="font-bold text-red-600">現已離開</span>;
-  const cls = mins<=3?'text-red-600':mins<=8?'text-orange-600':'text-emerald-600';
-  return <span className={`font-bold ${cls}`}>{mins} <span className="text-xs font-normal">分鐘</span></span>;
-}
+/* ================= 狀態 ================= */
+var stops = null;          // code -> {id, lat, lng}
+var stopById = {};         // id -> {lat, lng}
+var eta = {};              // code -> {data, lastOk, error, loading}
+var mtr = {};              // 'AIR' / 'TSY' -> {times, lastOk, error}
+var r968 = { ctx:null, map:null, lastOk:null, error:false };
+var active = load('tab') || 'out';
+var sel968 = load('sel968');
+var selAEL = load('selAEL');
+var refreshing = false, again = false, timers = {};
 
-function PartCard({part}){
-  const [data,setData]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [error,setError]=useState(null);
-  const [updated,setUpdated]=useState(null);
+/* ================= 工具 ================= */
+function load(k){ try{ var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }catch(e){ return null; } }
+function save(k,v){ try{ v==null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function normDest(s){ return s ? String(s).replace(/[()（）\s]/g,'').replace(/循環線/g,'') : ''; }
+function hm(ms){ return new Date(ms).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
+function minsTo(ms){ return Math.round((ms - Date.now())/60000); }
+function colorFor(m){ return m<=3 ? 'red' : m<=8 ? 'orange' : 'green'; }
+function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+function stopId(code){ return KNOWN[code] || (stops && stops[code] && stops[code].id) || null; }
+function tabById(id){ return TABS.filter(function(t){ return t.id===id; })[0] || TABS[0]; }
 
-  const load=useCallback(async()=>{
-    setLoading(true); setError(null);
+async function fetchJson(url){
+  var lastErr;
+  for(var i=0;i<FETCH_TRIES;i++){
+    var ctrl = new AbortController();
+    var t = setTimeout(function(){ ctrl.abort(); }, FETCH_TIMEOUT);
     try{
-      const res=await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${part.stopId}`);
+      var res = await fetch(url, { signal:ctrl.signal, cache:'no-store' });
       if(!res.ok) throw new Error('HTTP '+res.status);
-      const json=await res.json();
-      setData(json.data||[]); setUpdated(new Date());
-    }catch(e){ setError('無法載入數據'); }
-    finally{ setLoading(false); }
-  },[part]);
-
-  useEffect(()=>{ load(); const t=setInterval(load,30000); return()=>clearInterval(t); },[load]);
-
-  return (
-    <div className="bg-white rounded-2xl shadow-md overflow-hidden">
-      <div className={`bg-gradient-to-r ${part.color} px-4 py-3 text-white`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-bold text-lg leading-tight">📍 {part.name}</div>
-            <div className="text-xs opacity-90">{part.nameEn} · {part.code}</div>
-          </div>
-          <button onClick={load} className="p-2 rounded-full hover:bg-white/20 transition text-xl">🔄</button>
-        </div>
-      </div>
-      <div className="p-4 space-y-3">
-        {error && <div className="text-red-500 text-sm bg-red-50 p-3 rounded-lg">⚠️ {error}</div>}
-        {part.routes.map((r,idx)=>{
-          const filtered=data.filter(d=>d.route===r.route && normDest(d.dest_tc)===normDest(r.dest))
-            .sort((a,b)=>{const ta=a.eta?new Date(a.eta).getTime():Infinity;const tb=b.eta?new Date(b.eta).getTime():Infinity;return ta-tb;});
-          const seen=new Set();
-          const list=filtered.filter(d=>{const k=d.eta||'n'+Math.random();if(seen.has(k))return false;seen.add(k);return true;});
-          return (
-            <div key={idx} className="border border-gray-100 rounded-xl p-3">
-              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                <div className="bg-gray-900 text-white font-bold px-2.5 py-1 rounded-lg">🚌 {r.route}</div>
-                <span className="text-sm text-gray-500">往 {r.dest}</span>
-              </div>
-              {list.length===0 ? (
-                <div className="text-sm text-gray-400 py-1">{loading?'載入中...':'暫無班次資料'}</div>
-              ) : (
-                <div className="space-y-1.5">
-                  {list.slice(0,3).map((e,i)=>(
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2 text-gray-600">
-                        🕐 <span>{fmtTime(e.eta)}</span>
-                        {e.rmk_tc && <span className="text-xs text-gray-400">{e.rmk_tc}</span>}
-                      </div>
-                      <EtaBadge mins={minsFromNow(e.eta)} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {updated && <div className="text-xs text-gray-400 text-right pt-1">更新於 {updated.toLocaleTimeString('en-GB')}</div>}
-      </div>
-    </div>
-  );
+      return await res.json();
+    }catch(e){ lastErr = e; if(i<FETCH_TRIES-1) await sleep(800); }
+    finally{ clearTimeout(t); }
+  }
+  throw lastErr;
 }
 
-function App(){
-  const [now,setNow]=useState(new Date());
-  useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),1000); return()=>clearInterval(t); },[]);
-  return (
-    <div className="min-h-screen bg-gray-100 pb-8">
-      <div className="bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-5 shadow-lg sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold">🚌 九巴到站時間</h1>
-          <div className="text-right">
-            <div className="text-lg font-mono font-bold">{now.toLocaleTimeString('en-GB')}</div>
-            <div className="text-xs opacity-80">每 30 秒自動更新</div>
-          </div>
-        </div>
-      </div>
-      <div className="max-w-2xl mx-auto px-4 pt-4 space-y-4">
-        {PARTS.map(p=><PartCard key={p.id+p.stopId} part={p} />)}
-        <div className="text-center text-xs text-gray-400 pt-2">數據來源:KMB / LWB 開放數據</div>
-      </div>
-    </div>
-  );
+/* ================= 站點清單(每星期更新一次) ================= */
+async function ensureStops(){
+  if(stops) return;
+  var cached = load('kmbStops');
+  if(cached && Date.now() - cached.ts < 7*864e5){ buildStops(cached.rows); return; }
+  try{
+    var json = await fetchJson(KMB + 'stop');
+    var rows = [];
+    (json.data||[]).forEach(function(s){
+      var m = /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_tc || '') || /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_en || '');
+      rows.push([s.stop, m ? m[1] : '', +s.lat, +s.long]);
+    });
+    save('kmbStops', { ts:Date.now(), rows:rows });
+    buildStops(rows);
+  }catch(e){
+    if(cached) buildStops(cached.rows);
+  }
+}
+function buildStops(rows){
+  stops = {};
+  rows.forEach(function(r){
+    stopById[r[0]] = { lat:r[2], lng:r[3] };
+    if(r[1] && !stops[r[1]]) stops[r[1]] = { id:r[0], lat:r[2], lng:r[3] };
+  });
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+/* ================= 九巴到站 ================= */
+async function loadEta(code){
+  var id = stopId(code);
+  var st = eta[code] || (eta[code] = { data:[], lastOk:null, error:false });
+  if(!id){ st.error = !!stops; st.noId = !!stops; return; }
+  try{
+    var json = await fetchJson(KMB + 'stop-eta/' + id);
+    st.data = json.data || []; st.lastOk = Date.now(); st.error = false;
+  }catch(e){ st.error = true; }
+}
+
+/* ================= 968 路線(轉車用) ================= */
+async function ensure968Ctx(){
+  if(r968.ctx || !stops) return;
+  var boardId = stopId('CW767');
+  if(!boardId) return;
+  var cached = load('r968ctx');
+  if(cached && cached.boardId===boardId && Date.now()-cached.ts < 864e5){ r968.ctx = cached; return; }
+  var bounds = [['inbound','I'],['outbound','O']];
+  for(var i=0;i<bounds.length;i++){
+    try{
+      var json = await fetchJson(KMB + 'route-stop/968/' + bounds[i][0] + '/1');
+      var list = (json.data||[]).map(function(d){ return { seq:+d.seq, id:d.stop }; }).sort(function(a,b){ return a.seq-b.seq; });
+      var board = list.filter(function(s){ return s.id===boardId; })[0];
+      if(!board) continue;
+      var targets = {};
+      XFER968.forEach(function(x){
+        var ref = stops[x.near] || (KNOWN[x.near] && stopById[KNOWN[x.near]]);
+        if(!ref) return;
+        var best = null, bestD = Infinity;
+        list.forEach(function(s){
+          if(s.seq <= board.seq) return;
+          var p = stopById[s.id]; if(!p) return;
+          var d = Math.pow(p.lat-ref.lat,2) + Math.pow((p.lng-ref.lng)*0.92,2);
+          if(d < bestD){ bestD = d; best = s.seq; }
+        });
+        if(best!=null && bestD < 1e-5) targets[x.near] = best;   // 約 300 米內先當係同一個轉車點
+      });
+      r968.ctx = { ts:Date.now(), boardId:boardId, dir:bounds[i][1], boardSeq:board.seq, lastSeq:list[list.length-1].seq, targets:targets };
+      save('r968ctx', r968.ctx);
+      return;
+    }catch(e){}
+  }
+}
+
+async function load968Eta(){
+  if(!r968.ctx) return;
+  try{
+    var json = await fetchJson(KMB + 'route-eta/968/1');
+    var map = {};
+    (json.data||[]).forEach(function(d){
+      if(d.dir !== r968.ctx.dir || !d.eta) return;
+      var t = new Date(d.eta).getTime();
+      (map[d.seq] = map[d.seq] || []).push(t);
+    });
+    Object.keys(map).forEach(function(k){ map[k].sort(function(a,b){ return a-b; }); });
+    r968.map = map; r968.lastOk = Date.now(); r968.error = false;
+    if(sel968 && !sel968.seq) sel968.seq = r968.ctx.boardSeq;
+    track968();
+  }catch(e){ r968.error = true; }
+}
+
+// 由某站某時間,一站一站推算同一架車去到目標站嘅時間(巴士唔會互相超越)
+function chain(fromSeq, fromEta, toSeq){
+  var cur = fromEta;
+  for(var s=fromSeq+1; s<=toSeq; s++){
+    var list = r968.map[s];
+    if(!list) continue;
+    var next = list.filter(function(t){ return t >= cur - 60000; })[0];
+    if(next==null) return null;
+    cur = next;
+  }
+  return cur;
+}
+
+// 跟住揀咗嗰架車,更新佢而家去到邊
+function track968(){
+  if(!sel968 || !r968.map) return;
+  var c = r968.ctx, s = sel968.seq;
+  var here = (r968.map[s]||[]).filter(function(t){ return Math.abs(t - sel968.eta) <= 4*60000; })
+    .sort(function(a,b){ return Math.abs(a-sel968.eta) - Math.abs(b-sel968.eta); })[0];
+  if(here!=null){
+    sel968.eta = here;
+    if(s === c.boardSeq) sel968.board = here;
+  }else{
+    var found = false;
+    for(var n=s+1; n<=c.lastSeq; n++){
+      var t = (r968.map[n]||[]).filter(function(x){ return x >= sel968.eta - 60000; })[0];
+      if(t!=null){ sel968.seq = n; sel968.eta = t; found = true; break; }
+    }
+    if(!found && Date.now() - sel968.eta > 30*60000) sel968 = null;
+  }
+  save('sel968', sel968);
+}
+
+/* ================= 港鐵機場快綫 ================= */
+async function loadMtr(sta){
+  var st = mtr[sta] || (mtr[sta] = { times:[], lastOk:null, error:false });
+  try{
+    var json = await fetchJson(MTR + sta);
+    var d = (json.data||{})['AEL-' + sta] || {};
+    var all = (d.UP||[]).concat(d.DOWN||[]);
+    st.times = all.filter(function(x){ return x.dest === 'HOK' && x.time; })
+      .map(function(x){ return new Date(x.time.replace(' ','T') + '+08:00').getTime(); })
+      .sort(function(a,b){ return a-b; });
+    st.lastOk = Date.now(); st.error = false;
+  }catch(e){ st.error = true; }
+}
+
+function trackAEL(){
+  if(!selAEL) return;
+  var air = (mtr.AIR||{}).times || [], tsy = (mtr.TSY||{}).times || [];
+  var a = air.filter(function(t){ return Math.abs(t - selAEL.air) <= 3*60000; })[0];
+  if(a!=null){
+    selAEL.air = a;
+    var want = a + AEL_RIDE_MIN*60000;
+    var m = tsy.filter(function(t){ return t >= a + 8*60000 && t <= a + 22*60000; })
+      .sort(function(x,y){ return Math.abs(x-want) - Math.abs(y-want); })[0];
+    selAEL.tsy = m!=null ? m : null;
+  }else{
+    var ref = selAEL.tsy || selAEL.air + AEL_RIDE_MIN*60000;
+    var m2 = tsy.filter(function(t){ return Math.abs(t - ref) <= 5*60000; })[0];
+    if(m2!=null) selAEL.tsy = m2;
+    if(Date.now() - ref > 25*60000) selAEL = null;
+  }
+  save('selAEL', selAEL);
+}
+
+/* ================= 更新 ================= */
+function neededFor(tab){
+  var codes = {}, needAel = false, need968 = false;
+  tab.cards.forEach(function(c){
+    if(c.kind==='ael'){ needAel = true; codes.TY929 = 1; }
+    else codes[c.code] = 1;
+    if(c.xfer==='968'){ need968 = true; XFER968.forEach(function(x){ codes[x.near] = 1; }); }
+  });
+  return { codes:Object.keys(codes), ael:needAel, r968:need968 && !!sel968 };
+}
+
+async function refresh(){
+  if(refreshing){ again = true; return; }
+  refreshing = true; again = false;
+  document.getElementById('refresh').classList.add('spin');
+  var tab = tabById(active);
+  var need = neededFor(tab);
+  var missing = need.codes.some(function(c){ return !KNOWN[c]; });
+  if(missing || need.r968) await ensureStops();
+  if(tab.id==='sephb') await ensure968Ctx();
+  var jobs = need.codes.map(loadEta);
+  if(need.ael){ jobs.push(loadMtr('AIR')); jobs.push(loadMtr('TSY')); }
+  if(tab.id==='sephb' && sel968) jobs.push(load968Eta());
+  await Promise.allSettled(jobs);
+  if(need.ael) trackAEL();
+  refreshing = false;
+  document.getElementById('refresh').classList.remove('spin');
+  render();
+  if(again) refresh();
+}
+
+/* ================= 顯示 ================= */
+function etaRowHtml(t, opts){
+  var left = minsTo(t), buf = opts.buffer || 0, slack = left - buf;
+  var h = '<div class="eta-row' + (opts.tap ? ' tap' : '') + (opts.open ? ' open' : '') + '"' +
+          (opts.tap ? ' role="button" tabindex="0" data-sel="' + opts.tap + '" data-t="' + t + '"' : '') + '>';
+  h += '<div class="when"><div class="arr">' + hm(t) + '<small>' + (opts.verb || '到站') + '</small>' +
+       (opts.rmk ? '<span class="rmk">' + esc(opts.rmk) + '</span>' : '') + '</div>';
+  if(buf) h += slack < 0 ? '<div class="leave late">出門時間已過</div>' : '<div class="leave">' + hm(t - buf*60000) + ' 前出門</div>';
+  h += '</div>';
+  h += slack < 0 ? '<div class="mins red">趕唔切</div>'
+                 : '<div class="mins ' + colorFor(slack) + '">' + left + '<small>分鐘</small></div>';
+  return h + '</div>';
+}
+
+function groupsFor(card, st){
+  var out = [];
+  card.routes.forEach(function(r){
+    var entries = st.data.filter(function(d){ return d.route === r.r; });
+    if(!entries.length){ out.push({ route:r.r, dest:r.hint, times:[], remark:'' }); return; }
+    var map = {}, order = [];
+    entries.forEach(function(d){
+      var k = (d.dir||'') + '|' + normDest(d.dest_tc);
+      if(!map[k]){ map[k] = { route:r.r, dest:d.dest_tc, times:[], remark:'' }; order.push(k); }
+      if(d.eta) map[k].times.push({ t:new Date(d.eta).getTime(), rmk:d.rmk_tc });
+      else if(d.rmk_tc && !map[k].remark) map[k].remark = d.rmk_tc;
+    });
+    order.forEach(function(k){
+      var g = map[k], seen = {};
+      g.times = g.times.sort(function(a,b){ return a.t-b.t; })
+        .filter(function(x){ if(seen[x.t]) return false; seen[x.t] = 1; return x.t > Date.now() - 60000; });
+      out.push(g);
+    });
+  });
+  return out;
+}
+
+function connList(code, routes, arrive){
+  var st = eta[code];
+  if(!st || !st.lastOk) return null;
+  var list = [];
+  st.data.forEach(function(d){ if(routes.indexOf(d.route) >= 0 && d.eta) list.push({ r:d.route, t:new Date(d.eta).getTime() }); });
+  var seen = {};
+  return list.filter(function(c){ var k = c.r + c.t; if(seen[k]) return false; seen[k] = 1; return c.t >= arrive - 5*60000; })
+    .sort(function(a,b){ return a.t-b.t; }).slice(0,3);
+}
+
+function connHtml(list){
+  if(list==null) return '<div class="xmsg">載入緊轉車班次...</div>';
+  if(!list.length) return '<div class="xmsg">暫時未有之後嘅班次資料</div>';
+  var ok = list.some(function(c){ return c.ok; });
+  return list.map(function(c){
+    return '<div class="conn"><span>' + esc(c.r) + ' ' + hm(c.t) + '</span>' + c.status + '</div>';
+  }).join('') + (ok ? '' : '<div class="xmsg">之後嘅班次仲未有資料</div>');
+}
+function withStatus(list, arrive){
+  if(!list) return list;
+  return list.map(function(c){
+    var gap = (c.t - arrive)/60000;
+    c.ok = gap >= 0;
+    c.status = gap < 0 ? '<span class="red">❌ 趕唔切</span>'
+             : gap <= TIGHT_MIN ? '<span class="orange">⚠️ 好趕</span>'
+             : '<span class="green">✅ 夠時間</span>';
+    return c;
+  });
+}
+
+function panel968(){
+  var h = '<div class="xfer">';
+  var c = r968.ctx;
+  if(!c){ return h + '<div class="xmsg">暫時計唔到轉車，請稍後再試</div></div>'; }
+  if(!r968.map){ return h + '<div class="xmsg">計緊轉車時間...</div></div>'; }
+  XFER968.forEach(function(x){
+    var tseq = c.targets[x.near];
+    h += '<div class="xpt">';
+    if(tseq==null){ h += '<div class="xpt-h">' + x.name + '</div><div class="xmsg">搵唔到 968 喺呢度嘅落車站</div></div>'; return; }
+    if(sel968.seq > tseq){ h += '<div class="xpt-h">' + x.name + '<span>已經過咗</span></div></div>'; return; }
+    var arrive = sel968.seq === tseq ? sel968.eta : chain(sel968.seq, sel968.eta, tseq);
+    if(arrive==null){ h += '<div class="xpt-h">' + x.name + '</div><div class="xmsg">暫時計唔到，車行近啲再試</div></div>'; return; }
+    h += '<div class="xpt-h">' + x.name + '<span>968 約 ' + hm(arrive) + ' 到</span></div>';
+    h += connHtml(withStatus(connList(x.near, x.routes, arrive), arrive)) + '</div>';
+  });
+  return h + '</div>';
+}
+
+function panelAEL(){
+  var tsy = selAEL.tsy || selAEL.air + AEL_RIDE_MIN*60000;
+  var arrive = tsy + AEL_WALK_MIN*60000;
+  var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣 TY929<span>約 ' + hm(tsy) + ' 到青衣站，行到巴士站約 ' + hm(arrive) + '</span></div>';
+  h += connHtml(withStatus(connList('TY929', ['68E'], arrive), arrive));
+  return h + '</div></div>';
+}
+
+function kmbCard(card){
+  var st = eta[card.code] || { data:[] };
+  var stale = st.lastOk && (st.error || Date.now() - st.lastOk > STALE_MS);
+  var h = '<section class="stop' + (stale ? ' stale' : '') + '"><div class="stop-h"><div><div class="stop-name">' + esc(card.name) + '</div>' +
+          '<div class="stop-code">' + esc(card.code) + '</div></div>' +
+          (card.buffer ? '<span class="buffer">預 ' + card.buffer + ' 分鐘出門</span>' : '') + '</div>';
+  if(st.noId) return h + '<div class="err">搵唔到呢個站，請檢查站牌編號</div></section>';
+  if(st.error && !st.lastOk) return h + '<div class="err">⚠️ 無法載入數據，請檢查網絡後重新整理</div></section>';
+  if(stale) h += '<div class="warn">⚠️ 更新失敗，以下係 ' + new Date(st.lastOk).toLocaleTimeString('en-GB') + ' 嘅舊資料</div>';
+  groupsFor(card, st).forEach(function(g){
+    h += '<div class="route"><div class="route-h"><span class="rno">' + esc(g.route) + '</span>' +
+         (g.dest ? '<span class="dest">往 ' + esc(g.dest) + '</span>' : '') + '</div>';
+    var canTap = card.xfer==='968' && g.route==='968';
+    var matched = false;
+    var selT = sel968 && (sel968.board || sel968.eta);
+    if(canTap && sel968 && !g.times.some(function(x){ return Math.abs(x.t - selT) <= 90000; })){
+      h += '<div class="sel-head"><span>已揀 ' + hm(sel968.board || sel968.eta) + ' 開出嗰班</span><button class="x-btn" data-clear="968" aria-label="取消">✕</button></div>' + panel968();
+      matched = true;
+    }
+    if(!g.times.length){
+      h += g.remark ? '<div class="none rmk-only">' + esc(g.remark) + '</div>'
+                    : '<div class="none">' + (st.lastOk ? '暫無班次資料' : '載入中...') + '</div>';
+    }
+    g.times.slice(0,3).forEach(function(x){
+      var open = canTap && sel968 && !matched && Math.abs(x.t - selT) <= 90000;
+      h += etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:canTap ? '968' : '', open:open });
+      if(open){ matched = true; h += panel968(); }
+    });
+    h += '</div>';
+  });
+  if(st.lastOk && !stale) h += '<div class="upd">更新於 ' + new Date(st.lastOk).toLocaleTimeString('en-GB') + '</div>';
+  return h + '</section>';
+}
+
+function aelCard(card){
+  var st = mtr.AIR || { times:[] };
+  var stale = st.lastOk && (st.error || Date.now() - st.lastOk > STALE_MS);
+  var h = '<section class="stop' + (stale ? ' stale' : '') + '"><div class="stop-h"><div><div class="stop-name">' + esc(card.name) + '</div>' +
+          '<div class="stop-code">' + esc(card.sub) + '</div></div></div>';
+  if(st.error && !st.lastOk) return h + '<div class="err">⚠️ 無法載入港鐵數據，請檢查網絡後重新整理</div></section>';
+  if(stale) h += '<div class="warn">⚠️ 更新失敗，以下係 ' + new Date(st.lastOk).toLocaleTimeString('en-GB') + ' 嘅舊資料</div>';
+  h += '<div class="route"><div class="route-h"><span class="rno">機場快綫</span><span class="dest">往 青衣／香港</span></div>';
+  var times = st.times.filter(function(t){ return t > Date.now() - 60000; });
+  var matched = false;
+  if(selAEL && !times.some(function(t){ return Math.abs(t - selAEL.air) <= 90000; })){
+    h += '<div class="sel-head"><span>已揀 ' + hm(selAEL.air) + ' 開出嗰班</span><button class="x-btn" data-clear="ael" aria-label="取消">✕</button></div>' + panelAEL();
+    matched = true;
+  }
+  if(!times.length) h += '<div class="none">' + (st.lastOk ? '暫無班次資料' : '載入中...') + '</div>';
+  times.slice(0,3).forEach(function(t){
+    var open = selAEL && !matched && Math.abs(t - selAEL.air) <= 90000;
+    h += etaRowHtml(t, { verb:'開出', tap:'ael', open:open });
+    if(open){ matched = true; h += panelAEL(); }
+  });
+  h += '</div>';
+  if(st.lastOk && !stale) h += '<div class="upd">更新於 ' + new Date(st.lastOk).toLocaleTimeString('en-GB') + '</div>';
+  return h + '</section>';
+}
+
+function render(){
+  document.getElementById('tabs').innerHTML = TABS.map(function(t){
+    return '<button class="tab" role="tab" aria-selected="' + (t.id===active) + '" data-tab="' + t.id + '">' +
+           '<span class="e">' + t.e + '</span>' + t.name + '</button>';
+  }).join('');
+  document.getElementById('content').innerHTML = tabById(active).cards.map(function(c){
+    return c.kind==='ael' ? aelCard(c) : kmbCard(c);
+  }).join('');
+}
+
+/* ================= 操作 ================= */
+document.getElementById('tabs').addEventListener('click', function(e){
+  var b = e.target.closest('.tab'); if(!b || b.dataset.tab===active) return;
+  active = b.dataset.tab; save('tab', active); render(); refresh();
+});
+
+function onContent(e){
+  var x = e.target.closest('.x-btn');
+  if(x && e.type==='click'){
+    if(x.dataset.clear==='968'){ sel968 = null; save('sel968', null); }
+    else { selAEL = null; save('selAEL', null); }
+    render(); return;
+  }
+  var row = e.target.closest('.eta-row.tap'); if(!row) return;
+  if(e.type==='keydown' && e.key!=='Enter' && e.key!==' ') return;
+  e.preventDefault();
+  var t = +row.dataset.t;
+  if(row.dataset.sel==='968'){
+    if(sel968 && Math.abs(t - (sel968.board||sel968.eta)) <= 90000){ sel968 = null; save('sel968', null); render(); return; }
+    sel968 = { seq:(r968.ctx ? r968.ctx.boardSeq : 0), eta:t, board:t };
+    save('sel968', sel968); render(); refresh();
+  }else{
+    if(selAEL && Math.abs(t - selAEL.air) <= 90000){ selAEL = null; save('selAEL', null); render(); return; }
+    selAEL = { air:t, tsy:null }; trackAEL(); render();
+  }
+}
+document.getElementById('content').addEventListener('click', onContent);
+document.getElementById('content').addEventListener('keydown', onContent);
+document.getElementById('refresh').addEventListener('click', refresh);
+
+(function pullToRefresh(){
+  var ptr = document.getElementById('ptr'), startY = null, dist = 0, TH = 35, MAX = 90;
+  window.addEventListener('touchstart', function(e){ startY = (window.scrollY<=0 && e.touches.length===1) ? e.touches[0].clientY : null; dist = 0; }, {passive:true});
+  window.addEventListener('touchmove', function(e){
+    if(startY===null) return;
+    if(window.scrollY > 0){ startY = null; ptr.style.height = '0'; return; }
+    dist = Math.max(0, Math.min(MAX, (e.touches[0].clientY - startY)*0.5));
+    ptr.style.height = dist + 'px'; ptr.textContent = dist >= TH ? '放手即更新' : '下拉更新';
+  }, {passive:true});
+  window.addEventListener('touchend', function(){
+    if(startY!==null && dist >= TH) refresh();
+    startY = null; dist = 0; ptr.style.height = '0'; ptr.textContent = '';
+  }, {passive:true});
+})();
+
+/* ================= 排程(切走 app 就暫停) ================= */
+function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
+function startTimers(){
+  stopTimers(); tick();
+  timers.clock = setInterval(tick, 1000);
+  timers.render = setInterval(render, 10000);
+  timers.refresh = setInterval(refresh, REFRESH_MS);
+}
+function stopTimers(){ clearInterval(timers.clock); clearInterval(timers.render); clearInterval(timers.refresh); }
+document.addEventListener('visibilitychange', function(){
+  if(document.hidden) stopTimers(); else { render(); refresh(); startTimers(); }
+});
+window.addEventListener('online', refresh);
+window.addEventListener('pageshow', function(e){ if(e.persisted){ render(); refresh(); } });
+
+if(!TABS.some(function(t){ return t.id===active; })) active = 'out';
+render(); refresh(); startTimers();
+})();
 </script>
 </body>
 </html>
