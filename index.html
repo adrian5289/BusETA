@@ -120,7 +120,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.2.0';   // 每次改版記得更新
+var VERSION       = 'v2.3.0';   // 每次改版記得更新
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
 var FETCH_TRIES   = 2;
@@ -428,9 +428,10 @@ function connList(code, routes, arrive){
   if(!st || !st.lastOk) return null;
   var list = [];
   st.data.forEach(function(d){ if(routes.indexOf(d.route) >= 0 && d.eta) list.push({ r:d.route, t:new Date(d.eta).getTime() }); });
-  var seen = {};
+  var seen = {}, count = {}, perRoute = routes.length > 1 ? 2 : 3;   // 多條線時每條最多 2 班,唔會畀一條線霸晒
   return list.filter(function(c){ var k = c.r + c.t; if(seen[k]) return false; seen[k] = 1; return c.t >= arrive - 5*60000; })
-    .sort(function(a,b){ return a.t-b.t; }).slice(0,3);
+    .sort(function(a,b){ return a.t-b.t; })
+    .filter(function(c){ count[c.r] = (count[c.r]||0) + 1; return count[c.r] <= perRoute; });
 }
 
 function connHtml(list){
