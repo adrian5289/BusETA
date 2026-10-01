@@ -143,7 +143,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.11.0';   // 每次改版記得更新
+var VERSION       = 'v2.11.1';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -199,7 +199,7 @@ var sel968 = load('sel968');
 var selAEL = load('selAEL');
 var reminder = load('reminder');   // {code, route, t, buf, fired}
 
-// Sephora 返工更份:早 15 分鐘到,預 1 小時 15 分鐘車程(連行去巴士站)
+// Sephora 返工更:早 15 分鐘到,預 1 小時 15 分鐘車程(連行去巴士站)
 var SHIFTS = [
   { id:'B',   start:'11:00' },
   { id:'C',   start:'12:00' },
@@ -857,7 +857,7 @@ document.getElementById('refresh').addEventListener('click', refresh);
 /* ================= 排程(切走 app 就暫停) ================= */
 function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); checkShift(); }
 
-/* ================= 返工更份出門提示 ================= */
+/* ================= 返工更出門提示 ================= */
 function shiftNotifyAt(start){
   var p = start.split(':'), d = new Date();
   d.setHours(+p[0], +p[1] - SHIFT_EARLY - SHIFT_TRAVEL, 0, 0);
@@ -869,14 +869,14 @@ function dayLabel(t){
   return a.toDateString() === b.toDateString() ? '今日' : '聽日';
 }
 function shiftHtml(){
-  if(!shiftAlarm || shiftAlarm.fired) return '<button class="shift-btn" data-shift="open">⏰ 出門提示：揀返工更份</button>';
+  if(!shiftAlarm || shiftAlarm.fired) return '<button class="shift-btn" data-shift="open">⏰ 出門提示：揀返工更</button>';
   var how = shiftAlarm.push==='on' ? '推送提醒' : shiftAlarm.push==='pending' ? '設定緊...' : shiftAlarm.push==='off' ? '要開住網頁先會提' : '';
   return '<div class="shift-on"><span class="txt">⏰ <b>' + esc(shiftAlarm.id) + ' 更</b> 返 ' + esc(shiftAlarm.start) +
          '<span class="sub">' + dayLabel(shiftAlarm.at) + ' ' + hm(shiftAlarm.at) + ' 提你出門' + (how ? ' · ' + how : '') + '</span></span>' +
          '<button data-shift="open">更改</button><button class="x-btn" data-clear="shift" aria-label="取消">✕</button></div>';
 }
 function pickerHtml(){
-  return '<div class="sheet-bg"><div class="sheet" role="dialog" aria-label="揀返工更份"><h2>揀返工更份</h2>' +
+  return '<div class="sheet-bg"><div class="sheet" role="dialog" aria-label="揀返工更"><h2>揀返工更</h2>' +
     '<p>早 ' + SHIFT_EARLY + ' 分鐘到，預 1 小時 ' + (SHIFT_TRAVEL - 60) + ' 分鐘車程(連行去巴士站)</p>' +
     SHIFTS.map(function(s){
       var at = shiftNotifyAt(s.start);
