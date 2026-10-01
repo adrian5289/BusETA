@@ -143,7 +143,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.11.1';   // 每次改版記得更新
+var VERSION       = 'v2.11.2';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -447,18 +447,29 @@ function trackArrive(){
   save('selArr', selArr);
 }
 
-// 一站一站推算;推唔到就用前面最近一班車嘅車程估算
+// 一站一站跟住同一架車推算;跟唔到(九巴每站只列最近 3 班)就逐段計車程再加埋
 function arriveAt(code, t){
   var c = arr.ctx, from = c && c.seqs[code];
   if(from==null || c.targetSeq==null || c.targetSeq <= from || !arr.map) return null;
   var a = chain(from, t, c.targetSeq, arr.map);
   if(a!=null) return { t:a, exact:true };
-  var board = (arr.map[from] || []).slice().sort(function(x,y){ return Math.abs(x-t) - Math.abs(y-t); });
-  for(var i=0;i<board.length;i++){
-    var b = chain(from, board[i], c.targetSeq, arr.map);
-    if(b!=null) return { t:t + (b - board[i]), exact:false };
+  var travel = segmentTravel(from, c.targetSeq, arr.map);
+  return travel==null ? null : { t:t + travel, exact:false };
+}
+// 每兩個相鄰站:用最快到前一站嗰架車,量佢去下一站要幾耐,全部加埋
+function segmentTravel(from, to, map){
+  var total = 0, prev = null;
+  for(var s=from; s<=to; s++){
+    var list = map[s]; if(!list || !list.length) continue;
+    if(prev!=null){
+      var a = map[prev][0];
+      var b = list.filter(function(x){ return x >= a - 60000; })[0];
+      if(b==null) return null;
+      total += b - a;
+    }
+    prev = s;
   }
-  return null;
+  return prev===null ? null : total;
 }
 
 function panelArrive(code, t){
