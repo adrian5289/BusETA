@@ -129,7 +129,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.10.0';   // 每次改版記得更新
+var VERSION       = 'v2.10.1';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -443,8 +443,7 @@ function panelArrive(code, t){
   if(!arr.map) return msg('計緊到達時間...');
   var a = arriveAt(code, t);
   if(!a) return msg('暫時計唔到,車行近啲再試');
-  return h + '<div class="xpt-h">' + ARRIVE.name + '<span>' + ARRIVE.route + ' 約 ' + hm(a.t) + ' 到</span></div>' +
-         '<div class="xmsg">車程約 ' + Math.round((a.t - t)/60000) + ' 分鐘' + (a.exact ? '' : '(按前一班車估算)') + '</div></div></div>';
+  return h + '<div class="xpt-h">' + ARRIVE.name + '<span>' + ARRIVE.route + ' 約 ' + hm(a.t) + ' 到</span></div></div></div>';
 }
 
 /* ================= 港鐵機場快綫 ================= */
