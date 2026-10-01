@@ -214,8 +214,8 @@ async function sendBark(env, title, body) {
     body: JSON.stringify({
       device_key: env.BARK_KEY, title, body,
       group: '九巴到站', icon: APP_URL + 'BUS.jpg', url: APP_URL,
-      // 好似鬧鐘咁:重要提醒(靜音 / 勿擾都會響),鈴聲連續響 30 秒
-      level: 'critical', volume: 5, call: '1', sound: 'alarm',
+      // 重要提醒:靜音 / 勿擾都會響(響一次)
+      level: 'critical', volume: 5, sound: 'alarm',
     }),
   });
   return res.status;
