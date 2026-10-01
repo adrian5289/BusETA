@@ -129,7 +129,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.9.0';   // 每次改版記得更新
+var VERSION       = 'v2.9.1';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -446,10 +446,23 @@ function etaRowHtml(t, opts){
   return h + '</div>';
 }
 
+// 九巴會回傳兩個方向嘅班次;只要往設定目的地嗰邊
+function destMatch(dest, hint){
+  var a = normDest(dest), b = normDest(hint);
+  return !a || !b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0;
+}
+function hintFor(code, route){
+  var hint = '';
+  TABS.forEach(function(tb){ tb.cards.forEach(function(c){
+    if(c.code === code) c.routes.forEach(function(r){ if(r.r === route && !hint) hint = r.hint; });
+  }); });
+  return hint;
+}
+
 function groupsFor(card, st){
   var out = [];
   card.routes.forEach(function(r){
-    var entries = st.data.filter(function(d){ return d.route === r.r; });
+    var entries = st.data.filter(function(d){ return d.route === r.r && destMatch(d.dest_tc, r.hint); });
     if(!entries.length){ out.push({ route:r.r, dest:r.hint, times:[], remark:'' }); return; }
     var map = {}, order = [];
     entries.forEach(function(d){
@@ -472,7 +485,9 @@ function connList(code, routes, arrive){
   var st = eta[code];
   if(!st || !st.lastOk) return null;
   var list = [];
-  st.data.forEach(function(d){ if(routes.indexOf(d.route) >= 0 && d.eta) list.push({ r:d.route, t:new Date(d.eta).getTime() }); });
+  st.data.forEach(function(d){
+    if(routes.indexOf(d.route) >= 0 && d.eta && destMatch(d.dest_tc, hintFor(code, d.route))) list.push({ r:d.route, t:new Date(d.eta).getTime() });
+  });
   var seen = {}, count = {}, perRoute = routes.length > 1 ? 2 : 3;   // 多條線時每條最多 2 班,唔會畀一條線霸晒
   return list.filter(function(c){ var k = c.r + c.t; if(seen[k]) return false; seen[k] = 1; return c.t >= arrive - 5*60000; })
     .sort(function(a,b){ return a.t-b.t; })
