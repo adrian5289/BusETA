@@ -49,18 +49,26 @@ export default {
           if (!PUSH_HOSTS.test(new URL(sub.endpoint).hostname)) return json({ error: 'unsupported push service' }, 400);
           sub = { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } };
         }
-        if (!/^[0-9A-F]{16}$/.test(b.stopId || '') || !/^[0-9A-Z]{1,5}$/.test(b.route || '')) return json({ error: 'bad stop' }, 400);
-        const t = Number(b.t), buf = Number(b.buf);
-        if (!(t > Date.now() - EXPIRE_AFTER) || !(buf >= 0 && buf <= 120)) return json({ error: 'bad time' }, 400);
-        const r = {
-          id: crypto.randomUUID(), sub,
-          stopId: b.stopId, route: b.route, stop: String(b.stop || '').slice(0, 40), t, buf,
-        };
-        const list = (await loadList(env)).filter(x => x.sub.endpoint !== r.sub.endpoint);   // 每部機一個提醒
+        let r;
+        if (b.kind === 'alarm') {
+          // 定時提醒(例如返工更份):到 at 就推送,唔跟班次
+          const at = Number(b.at);
+          if (!(at > Date.now() - EXPIRE_AFTER && at < Date.now() + 3 * 864e5)) return json({ error: 'bad time' }, 400);
+          r = { id: crypto.randomUUID(), sub, kind: 'alarm', at,
+                title: String(b.title || '').slice(0, 40), body: String(b.body || '').slice(0, 80) };
+        } else {
+          if (!/^[0-9A-F]{16}$/.test(b.stopId || '') || !/^[0-9A-Z]{1,5}$/.test(b.route || '')) return json({ error: 'bad stop' }, 400);
+          const t = Number(b.t), buf = Number(b.buf);
+          if (!(t > Date.now() - EXPIRE_AFTER) || !(buf >= 0 && buf <= 120)) return json({ error: 'bad time' }, 400);
+          r = { id: crypto.randomUUID(), sub, kind: 'bus',
+                stopId: b.stopId, route: b.route, stop: String(b.stop || '').slice(0, 40), t, buf };
+        }
+        // 每部機:一個班次提醒 + 一個定時提醒
+        const list = (await loadList(env)).filter(x => !(x.sub.endpoint === r.sub.endpoint && (x.kind || 'bus') === r.kind));
         if (list.length >= MAX_REMINDERS) return json({ error: 'too many reminders' }, 429);
         list.push(r);
         await env.REMINDERS.put(LIST_KEY, JSON.stringify(list));
-        return json({ id: r.id, leaveAt: r.t - r.buf * 60000 });
+        return json({ id: r.id, leaveAt: r.kind === 'alarm' ? r.at : r.t - r.buf * 60000 });
       }
       const m = /^\/reminders\/([0-9a-f-]{36})$/.exec(url.pathname);
       if (req.method === 'DELETE' && m) {
@@ -92,7 +100,7 @@ async function runReminders(env, now = Date.now()) {
 
   // 每個站只攞一次實時到站
   const etas = {};
-  await Promise.all([...new Set(list.map(r => r.stopId))].map(async id => {
+  await Promise.all([...new Set(list.filter(r => r.stopId).map(r => r.stopId))].map(async id => {
     try {
       const res = await fetch(KMB_ETA + id, { cf: { cacheTtl: 20 } });
       if (res.ok) etas[id] = (await res.json()).data || [];
@@ -102,7 +110,22 @@ async function runReminders(env, now = Date.now()) {
   const updated = {}, removed = new Set();
   let sent = 0;
   let keys = null;
+  const send = async (r, title, body) => {
+    if (r.sub.endpoint === 'bark') return sendBark(env, title, body).catch(() => 0);
+    if (env.BARK_KEY) return 0;
+    keys = keys || await vapidKeys(env);
+    return sendPush(r.sub, { title, body, tag: r.kind || 'leave', url: './' }, keys).catch(() => 0);
+  };
   for (const r of list) {
+    if (r.kind === 'alarm') {
+      if (now > r.at + 10 * 60000) { removed.add(r.id); continue; }   // 錯過咗太耐就唔推
+      if (now >= r.at) {
+        const status = await send(r, r.title || '夠鐘出門!', r.body || '');
+        if (status >= 200 && status < 300) sent++;
+        removed.add(r.id);
+      }
+      continue;
+    }
     const near = (etas[r.stopId] || [])
       .filter(d => d.route === r.route && d.eta)
       .map(d => new Date(d.eta).getTime())
@@ -113,12 +136,7 @@ async function runReminders(env, now = Date.now()) {
     if (now > r.t + EXPIRE_AFTER) { removed.add(r.id); continue; }
     if (now >= r.t - r.buf * 60000) {
       const body = r.route + ' ' + hm(r.t) + ' 到站' + (r.stop ? '(' + r.stop + ')' : '');
-      let status = 0;
-      if (r.sub.endpoint === 'bark') status = await sendBark(env, '夠鐘出門!', body).catch(() => 0);
-      else if (!env.BARK_KEY) {
-        keys = keys || await vapidKeys(env);
-        status = await sendPush(r.sub, { title: '夠鐘出門!', body, tag: 'leave', url: './' }, keys).catch(() => 0);
-      }
+      const status = await send(r, '夠鐘出門!', body);
       if (status >= 200 && status < 300) sent++;
       removed.add(r.id);   // 成功或者訂閱失效 (404/410) 都唔再試
     }

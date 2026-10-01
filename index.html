@@ -102,6 +102,20 @@
   .demo{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:#6b3fa0;background:#f1e8fb;border-radius:12px;padding:9px 12px;margin-bottom:14px}
   .demo button{border:0;border-radius:999px;background:#6b3fa0;color:#fff;font:inherit;font-size:12px;padding:5px 10px;cursor:pointer}
   #ver{cursor:pointer}
+  .shift-btn{display:block;width:100%;border:0;border-radius:14px;background:var(--card);color:var(--accent);font:inherit;font-size:15px;font-weight:600;padding:12px;margin-bottom:14px;box-shadow:0 2px 10px rgba(52,89,154,.08);cursor:pointer}
+  .shift-on{display:flex;align-items:center;gap:8px;background:var(--card);border-radius:14px;padding:10px 12px;margin-bottom:14px;box-shadow:0 2px 10px rgba(52,89,154,.08);font-size:14px}
+  .shift-on .txt{flex:1;line-height:1.4}
+  .shift-on .sub{display:block;font-size:12px;color:var(--sub)}
+  .shift-on button{border:0;background:var(--accent-soft);color:var(--accent);border-radius:999px;font:inherit;font-size:13px;padding:6px 10px;cursor:pointer}
+  .sheet-bg{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center}
+  .sheet{width:100%;max-width:32rem;background:var(--card);border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px))}
+  .sheet h2{margin:0 0 4px;font-size:18px}
+  .sheet p{margin:0 0 12px;font-size:13px;color:var(--sub)}
+  .shift-opt{display:flex;align-items:center;width:100%;gap:12px;border:0;border-radius:12px;background:var(--accent-soft);color:var(--text);font:inherit;padding:12px 14px;margin-bottom:8px;cursor:pointer;text-align:left}
+  .shift-opt b{min-width:44px;font-size:18px;color:var(--accent)}
+  .shift-opt .when{flex:1;font-size:14px}
+  .shift-opt .ntf{font-size:14px;font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
+  .sheet .cancel{width:100%;border:0;background:none;color:var(--sub);font:inherit;font-size:15px;padding:10px;cursor:pointer}
   .alarm button{border:0;border-radius:999px;background:var(--orange);color:#fff;font:inherit;font-size:13px;padding:6px 12px;cursor:pointer}
 </style>
 </head>
@@ -129,7 +143,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.10.1';   // 每次改版記得更新
+var VERSION       = 'v2.11.0';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -184,6 +198,18 @@ var active = load('tab') || 'out';
 var sel968 = load('sel968');
 var selAEL = load('selAEL');
 var reminder = load('reminder');   // {code, route, t, buf, fired}
+
+// Sephora 返工更份:早 15 分鐘到,預 1 小時 15 分鐘車程(連行去巴士站)
+var SHIFTS = [
+  { id:'B',   start:'11:00' },
+  { id:'C',   start:'12:00' },
+  { id:'C15', start:'12:15' },
+  { id:'E',   start:'13:00' },
+  { id:'E15', start:'13:15' }
+];
+var SHIFT_EARLY = 15, SHIFT_TRAVEL = 75;
+var shiftAlarm = load('shiftAlarm');   // {id, start, at, serverId, push, fired}
+var shiftPicker = false;
 var refreshing = false, again = false, timers = {};
 
 /* ================= 工具 ================= */
@@ -748,9 +774,12 @@ function render(){
   var alarm = reminder && reminder.fired
     ? '<div class="alarm"><span>🔔 夠鐘出門！' + esc(reminder.route) + ' ' + hm(reminder.t) + ' 到站</span><button class="x-btn" data-clear="rem">知道</button></div>' : '';
   var demo = DEMO ? '<div class="demo"><span>🧪 預覽模式：班次係模擬資料</span><button data-demo="off">返回正常版</button></div>' : '';
+  if(active==='seph') alarm += shiftHtml();
+  if(shiftAlarm && shiftAlarm.fired)
+    alarm = '<div class="alarm"><span>⏰ 夠鐘出門返工！' + esc(shiftAlarm.id) + ' 更 ' + esc(shiftAlarm.start) + '</span><button class="x-btn" data-clear="shift">知道</button></div>' + alarm;
   document.getElementById('content').innerHTML = demo + alarm + tabById(active).cards.map(function(c){
     return c.kind==='ael' ? aelCard(c) : kmbCard(c);
-  }).join('');
+  }).join('') + (shiftPicker ? pickerHtml() : '');
 }
 
 /* ================= 操作 ================= */
@@ -760,11 +789,19 @@ document.getElementById('tabs').addEventListener('click', function(e){
 });
 
 function onContent(e){
+  if(e.type==='click'){
+    var sp = e.target.closest('[data-shift]');
+    if(sp){ shiftPicker = sp.dataset.shift==='open'; render(); return; }
+    var pick = e.target.closest('[data-shift-pick]');
+    if(pick){ setShift(pick.dataset.shiftPick); return; }
+    if(shiftPicker && e.target.classList.contains('sheet-bg')){ shiftPicker = false; render(); return; }
+  }
   if(e.type==='click' && e.target.closest('[data-demo]')){ setDemo(false); return; }
   var x = e.target.closest('.x-btn');
   if(x && e.type==='click'){
     if(x.dataset.clear==='968'){ sel968 = null; save('sel968', null); }
     else if(x.dataset.clear==='rem'){ clearReminder(); }
+    else if(x.dataset.clear==='shift'){ clearShift(); }
     else { selAEL = null; save('selAEL', null); }
     render(); return;
   }
@@ -818,7 +855,71 @@ document.getElementById('refresh').addEventListener('click', refresh);
 })();
 
 /* ================= 排程(切走 app 就暫停) ================= */
-function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); }
+function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); checkShift(); }
+
+/* ================= 返工更份出門提示 ================= */
+function shiftNotifyAt(start){
+  var p = start.split(':'), d = new Date();
+  d.setHours(+p[0], +p[1] - SHIFT_EARLY - SHIFT_TRAVEL, 0, 0);
+  if(d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);   // 今日已過就設聽日
+  return d.getTime();
+}
+function dayLabel(t){
+  var a = new Date(t), b = new Date();
+  return a.toDateString() === b.toDateString() ? '今日' : '聽日';
+}
+function shiftHtml(){
+  if(!shiftAlarm || shiftAlarm.fired) return '<button class="shift-btn" data-shift="open">⏰ 出門提示：揀返工更份</button>';
+  var how = shiftAlarm.push==='on' ? '推送提醒' : shiftAlarm.push==='pending' ? '設定緊...' : shiftAlarm.push==='off' ? '要開住網頁先會提' : '';
+  return '<div class="shift-on"><span class="txt">⏰ <b>' + esc(shiftAlarm.id) + ' 更</b> 返 ' + esc(shiftAlarm.start) +
+         '<span class="sub">' + dayLabel(shiftAlarm.at) + ' ' + hm(shiftAlarm.at) + ' 提你出門' + (how ? ' · ' + how : '') + '</span></span>' +
+         '<button data-shift="open">更改</button><button class="x-btn" data-clear="shift" aria-label="取消">✕</button></div>';
+}
+function pickerHtml(){
+  return '<div class="sheet-bg"><div class="sheet" role="dialog" aria-label="揀返工更份"><h2>揀返工更份</h2>' +
+    '<p>早 ' + SHIFT_EARLY + ' 分鐘到，預 1 小時 ' + (SHIFT_TRAVEL - 60) + ' 分鐘車程(連行去巴士站)</p>' +
+    SHIFTS.map(function(s){
+      var at = shiftNotifyAt(s.start);
+      return '<button class="shift-opt" data-shift-pick="' + s.id + '"><b>' + s.id + '</b><span class="when">返 ' + s.start + '</span>' +
+             '<span class="ntf">' + dayLabel(at) + ' ' + hm(at) + ' 提你</span></button>';
+    }).join('') + '<button class="cancel" data-shift="close">取消</button></div></div>';
+}
+function setShift(id){
+  var s = SHIFTS.filter(function(x){ return x.id===id; })[0]; if(!s) return;
+  clearShift();
+  shiftAlarm = { id:s.id, start:s.start, at:shiftNotifyAt(s.start), fired:false, push:PUSH_API ? 'pending' : '' };
+  save('shiftAlarm', shiftAlarm); shiftPicker = false;
+  if(PUSH_API) setupShiftPush(shiftAlarm);
+  else try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
+  render();
+}
+async function setupShiftPush(a){
+  try{
+    var sid = await pushRegister({ kind:'alarm', at:a.at, title:'夠鐘出門返工！', body:a.id + ' 更 ' + a.start + ' 返工' });
+    if(shiftAlarm !== a){ cancelPush(sid); return; }
+    a.serverId = sid; a.push = 'on';
+  }catch(e){ if(shiftAlarm === a) a.push = 'off'; }
+  if(shiftAlarm === a){ save('shiftAlarm', a); render(); }
+}
+function clearShift(){
+  if(shiftAlarm && !shiftAlarm.fired) cancelPush(shiftAlarm.serverId);
+  shiftAlarm = null; save('shiftAlarm', null);
+}
+function checkShift(){
+  if(!shiftAlarm) return;
+  if(shiftAlarm.fired){ if(Date.now() > shiftAlarm.at + 3*3600e3){ shiftAlarm = null; save('shiftAlarm', null); render(); } return; }
+  if(Date.now() < shiftAlarm.at) return;
+  shiftAlarm.fired = true; save('shiftAlarm', shiftAlarm);
+  var body = shiftAlarm.id + ' 更 ' + shiftAlarm.start + ' 返工';
+  try{
+    if(shiftAlarm.push!=='on' && 'Notification' in window && Notification.permission==='granted'){
+      if(navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.ready.then(function(r){ r.showNotification('夠鐘出門返工！', { body:body, icon:'BUS.jpg' }); });
+      else new Notification('夠鐘出門返工！', { body:body, icon:'BUS.jpg' });
+    }
+  }catch(err){}
+  try{ if(navigator.vibrate) navigator.vibrate([300,150,300]); }catch(err){}
+  render();
+}
 
 /* ================= 出門提醒 ================= */
 // 有 PUSH_API:交畀推送伺服器,鎖咗機都會收到;冇嘅話要開住網頁先會響
@@ -840,38 +941,31 @@ function loadPushInfo(){
   if(!PUSH_API || pushInfo) return Promise.resolve(pushInfo);
   return fetchJson(PUSH_API + '/vapid').then(function(j){ pushInfo = j; return j; }).catch(function(){ return null; });
 }
-async function setupPush(r){
+// 將提醒交畀推送伺服器,成功就回傳伺服器 id。用 Bark 唔使瀏覽器通知權限
+async function pushRegister(payload){
   if(!pushInfo) await loadPushInfo();
-  if(pushInfo && pushInfo.bark) return setupBark(r);   // 用 Bark:唔使瀏覽器通知權限
-  var perm = null;
-  try{ perm = Notification.requestPermission(); }catch(e){}
-  try{
+  if(!(pushInfo && pushInfo.bark)){
+    var perm = null;
+    try{ perm = Notification.requestPermission(); }catch(e){}   // 盡量喺撳嘅時候即刻問
     if(!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('unsupported');
     if(!perm || (await perm) !== 'granted') throw new Error('denied');
-    var id = stopId(r.code); if(!id) throw new Error('no stop id');
     var reg = await Promise.race([navigator.serviceWorker.ready, sleep(5000).then(function(){ throw new Error('sw timeout'); })]);
     if(!vapidPub) vapidPub = (pushInfo || await fetchJson(PUSH_API + '/vapid')).publicKey;
     var sub = await reg.pushManager.getSubscription();
     if(sub && !sameKey(sub, vapidPub)){ await sub.unsubscribe(); sub = null; }
     if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64uBytes(vapidPub) });
-    var res = await fetch(PUSH_API + '/reminders', { method:'POST', headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify({ subscription:sub.toJSON(), stopId:id, route:r.route, t:r.t, buf:r.buf, stop:r.name }) });
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    var j = await res.json();
-    if(reminder !== r){ cancelPush(j.id); return; }   // 設定期間已經取消或者換咗
-    r.serverId = j.id; r.push = 'on';
-  }catch(e){ if(reminder === r) r.push = 'off'; }
-  if(reminder === r){ save('reminder', r); render(); }
+    payload.subscription = sub.toJSON();
+  }
+  var res = await fetch(PUSH_API + '/reminders', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(payload) });
+  if(!res.ok) throw new Error('HTTP ' + res.status);
+  return (await res.json()).id;
 }
-async function setupBark(r){
+async function setupPush(r){
   try{
     var id = stopId(r.code); if(!id) throw new Error('no stop id');
-    var res = await fetch(PUSH_API + '/reminders', { method:'POST', headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify({ stopId:id, route:r.route, t:r.t, buf:r.buf, stop:r.name }) });
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    var j = await res.json();
-    if(reminder !== r){ cancelPush(j.id); return; }
-    r.serverId = j.id; r.push = 'on';
+    var sid = await pushRegister({ stopId:id, route:r.route, t:r.t, buf:r.buf, stop:r.name });
+    if(reminder !== r){ cancelPush(sid); return; }   // 設定期間已經取消或者換咗
+    r.serverId = sid; r.push = 'on';
   }catch(e){ if(reminder === r) r.push = 'off'; }
   if(reminder === r){ save('reminder', r); render(); }
 }
