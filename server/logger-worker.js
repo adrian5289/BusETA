@@ -1,16 +1,18 @@
 // BusETA 記錄器:每幾分鐘記低巴士大約幾點到站,再估計聽日班次
 const KMB = 'https://data.etabus.gov.hk/v1/transport/kmb/';
 
-const KNOWN = {
-  YL292: 'C187E3771B7032EC', YL244: '21DA1E33BF580B96', YL242: '6A4B371546D489BF',
-  YL255: '8BE58FAD7E9C94C7', TY929: '83D9B6BE39530EEF'
+// 要記錄嘅站(九巴站 ID)同路線
+const STOPS = { YL292: 'C187E3771B7032EC', YL255: '8BE58FAD7E9C94C7' };
+const WATCH = {
+  YL292: ['68E', '68F'],            // 馬田壆
+  YL255: ['E36', 'E36S', 'A36']     // 康樂路
 };
 
-// 要記錄嘅站(站牌編號)同路線
-const WATCH = {
-  YL292: ['68E', '68F'], YL244: ['68E', '68F'], YL242: ['68E', '68F'],
-  YL369: ['968'], YL392: ['968'], CW767: ['968'], YL236: ['68E'],
-  YL255: ['E36', 'E36S', 'A36'], TY929: ['68E']
+// 每條線要估計嘅方向(目的地,啱其中一個就得);九巴會同時回傳兩個方向
+const AIRPORT = ['機場', '國泰城'];
+const HINT = {
+  YL292: { '68E': ['青衣'], '68F': ['元朗公園'] },
+  YL255: { E36: AIRPORT, E36S: AIRPORT, A36: AIRPORT }
 };
 
 const MATCH_MS = 4 * 60e3;   // 前後兩次見到同一架車,ETA 相差唔超過 4 分鐘
@@ -28,6 +30,11 @@ const SCHEMA = [
 function hkDate(ms) { return new Date(ms + HK); }
 function dayType(ms) { const d = hkDate(ms).getUTCDay(); return d === 0 ? 'H' : d === 6 ? 'S' : 'W'; }
 function dateStr(ms) { return hkDate(ms).toISOString().slice(0, 10); }
+function normDest(s) { return String(s || '').replace(/[()（）\s]/g, '').replace(/循環線/g, ''); }
+function destMatch(dest, hints) {
+  const a = normDest(dest);
+  return !a || !hints || hints.some(h => { const b = normDest(h); return a.includes(b) || b.includes(a); });
+}
 function hhmm(min) { const m = Math.round(min); return String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); }
 
 async function getJson(url) {
@@ -53,35 +60,15 @@ async function ensureSchema(db) {
   await db.batch(SCHEMA.map(s => db.prepare(s)));
 }
 
-// 用站牌編號對返九巴站 ID(每星期更新一次)
-async function resolveStops(db, now) {
-  const cached = await getState(db, 'stops');
-  if (cached && now - cached.ts < 7 * 864e5) return cached.map;
-  try {
-    const json = await getJson(KMB + 'stop');
-    const map = {};
-    for (const s of json.data || []) {
-      const m = /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_tc || '') || /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_en || '');
-      if (m && WATCH[m[1]] && !KNOWN[m[1]] && !map[m[1]]) map[m[1]] = s.stop;
-    }
-    await setState(db, 'stops', { ts: now, map }).run();
-    return map;
-  } catch (e) {
-    return cached ? cached.map : {};
-  }
-}
-
 async function collect(env) {
   const db = env.DB;
   await ensureSchema(db);
   const now = Date.now();
-  const map = await resolveStops(db, now);
   const pending = (await getState(db, 'pending')) || [];
 
   const fresh = [], failed = new Set(), seen = new Set();
   await Promise.all(Object.keys(WATCH).map(async code => {
-    const id = KNOWN[code] || map[code];
-    if (!id) { failed.add(code); return; }
+    const id = STOPS[code];
     try {
       const json = await getJson(KMB + 'stop-eta/' + id);
       for (const d of json.data || []) {
@@ -123,10 +110,20 @@ async function collect(env) {
 }
 
 // 將過去同類日子嘅到站時間分組,估計每班車大約幾點到
-async function predict(db, stop, route, day, now) {
-  const rows = (await db.prepare(
-    'SELECT arr, date FROM arrivals WHERE stop = ? AND route = ? AND day = ? AND arr >= ? ORDER BY arr'
+// 方向:有指定 dir 就用;否則揀目的地啱 HINT 嗰個;都冇就揀記錄最多嗰個
+async function predict(db, stop, route, day, now, wantDir) {
+  const all = (await db.prepare(
+    'SELECT arr, date, dir, dest FROM arrivals WHERE stop = ? AND route = ? AND day = ? AND arr >= ? ORDER BY arr'
   ).bind(stop, route, day, now - LOOK_DAYS * 864e5).all()).results || [];
+  let dir = wantDir;
+  if (!dir) {
+    const hint = (HINT[stop] || {})[route];
+    const count = {};
+    for (const r of all) if (!hint || destMatch(r.dest, hint)) count[r.dir] = (count[r.dir] || 0) + 1;
+    dir = Object.keys(count).sort((a, b) => count[b] - count[a])[0] || null;
+  }
+  const rows = dir ? all.filter(r => r.dir === dir) : [];
+  const dest = rows.length ? rows[rows.length - 1].dest : '';
   const days = new Set(rows.map(r => r.date)).size;
   const pts = rows.map(r => ({ m: ((r.arr + HK) % 864e5) / 60e3, date: r.date })).sort((a, b) => a.m - b.m);
 
@@ -145,7 +142,7 @@ async function predict(db, stop, route, day, now) {
     if (ms.length < need) continue;
     slots.push({ t: hhmm(ms[Math.floor(ms.length / 2)]), min: hhmm(ms[0]), max: hhmm(ms[ms.length - 1]), n: ms.length });
   }
-  return { stop, route, day, days, slots };
+  return { stop, route, dir, dest, day, days, slots };
 }
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json; charset=utf-8' };
@@ -168,9 +165,10 @@ export default {
         const routes = (url.searchParams.get('route') || '').split(',').filter(Boolean);
         const when = url.searchParams.get('day') || 'tomorrow';
         const day = ['W', 'S', 'H'].includes(when) ? when : dayType(now + (when === 'today' ? 0 : 864e5));
+        const dir = ['O', 'I'].includes(url.searchParams.get('dir')) ? url.searchParams.get('dir') : null;
         if (!stop || !routes.length) return json({ error: '要提供 stop 同 route' }, 400);
         const out = {};
-        for (const r of routes) out[r] = await predict(db, stop, r, day, now);
+        for (const r of routes) out[r] = await predict(db, stop, r, day, now, dir);
         return json({ day, routes: out });
       }
       if (url.pathname === '/run') {
@@ -181,7 +179,7 @@ export default {
         const c = await db.prepare('SELECT COUNT(*) AS n, COUNT(DISTINCT date) AS d FROM arrivals').first();
         return json({ arrivals: c.n, days: c.d, lastRun: await getState(db, 'lastRun') });
       }
-      return json({ ok: true, name: 'BusETA 記錄器', try: ['/status', '/run', '/predict?stop=YL292&route=68E'] });
+      return json({ ok: true, name: 'BusETA 記錄器', try: ['/status', '/run', '/predict?stop=YL292&route=68E,68F', '/predict?stop=YL255&route=E36,E36S,A36'] });
     } catch (e) {
       return json({ error: String(e && e.message || e) }, 500);
     }
