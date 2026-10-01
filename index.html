@@ -127,6 +127,11 @@
   .shift-opt .when{flex:1;font-size:14px}
   .shift-opt .ntf{font-size:14px;font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
   .sheet .cancel{width:100%;border:0;background:none;color:var(--sub);font:inherit;font-size:15px;padding:10px;cursor:pointer}
+  .bark-link{border:0;background:var(--card);color:var(--accent);border-radius:999px;font:inherit;font-size:13px;padding:7px 14px;margin-bottom:10px;cursor:pointer;box-shadow:0 2px 10px rgba(52,89,154,.08)}
+  .bark-input{width:100%;border:1px solid var(--line);border-radius:12px;font:inherit;font-size:16px;padding:11px 12px;margin-bottom:8px;background:#fff;color:var(--text)}
+  .bark-msg{min-height:20px;font-size:13px;color:var(--sub);margin-bottom:10px}
+  .sheet .primary{width:100%;border:0;border-radius:12px;background:var(--accent);color:#fff;font:inherit;font-size:15px;font-weight:600;padding:12px;margin-bottom:8px;cursor:pointer}
+  .sheet .danger{width:100%;border:0;border-radius:12px;background:#fdecee;color:var(--red);font:inherit;font-size:15px;padding:11px;margin-bottom:4px;cursor:pointer}
   .alarm button{border:0;border-radius:999px;background:var(--orange);color:#fff;font:inherit;font-size:13px;padding:6px 12px;cursor:pointer}
 </style>
 </head>
@@ -149,7 +154,8 @@
 <div id="ptr"></div>
 <main class="wrap">
   <div id="content"></div>
-  <div class="foot">數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
+  <div class="foot"><button class="bark-link" id="barkset"></button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
+  <div id="modal"></div>
   <iframe id="logframe" title="記錄器狀態"></iframe>
 </main>
 
@@ -158,7 +164,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.13.1';   // 每次改版記得更新
+var VERSION       = 'v2.14.0';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -961,6 +967,48 @@ function checkShift(){
   render();
 }
 
+/* ================= Bark 推送設定(每部手機自己嘅 Key) ================= */
+var barkKey = load('barkKey');
+function parseBarkKey(v){
+  v = String(v || '').trim();
+  var m = /api\.day\.app\/([A-Za-z0-9]+)/.exec(v);
+  if(m) v = m[1];
+  return /^[A-Za-z0-9]{8,64}$/.test(v) ? v : null;
+}
+function barkLabel(){ document.getElementById('barkset').textContent = barkKey ? '🔔 Bark 推送：已設定' : '🔔 設定 Bark 推送'; }
+function openBark(){
+  if(!PUSH_API) return;
+  document.getElementById('modal').innerHTML =
+    '<div class="sheet-bg" data-bark="bg"><div class="sheet" role="dialog" aria-label="Bark 推送設定"><h2>Bark 推送設定</h2>' +
+    '<p>喺 Bark app 首頁複製網址（例如 https://api.day.app/xxxx/…）貼喺下面。Key 只會儲存喺呢部手機，提醒只會發去你部機。</p>' +
+    '<input class="bark-input" id="barkInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="貼上 Bark 網址或 Key" value="' + esc(barkKey || '') + '">' +
+    '<div class="bark-msg" id="barkMsg"></div>' +
+    '<button class="primary" data-bark="save">儲存並發測試通知</button>' +
+    (barkKey ? '<button class="danger" data-bark="clear">刪除 Key</button>' : '') +
+    '<button class="cancel" data-bark="close">完成</button></div></div>';
+}
+function closeBark(){ document.getElementById('modal').innerHTML = ''; barkLabel(); }
+async function saveBark(){
+  var msg = document.getElementById('barkMsg');
+  var key = parseBarkKey(document.getElementById('barkInput').value);
+  if(!key){ msg.textContent = '⚠️ 搵唔到 Key，請貼上 Bark app 入面嘅網址'; return; }
+  barkKey = key; save('barkKey', key); barkLabel();
+  msg.textContent = '已儲存，傳送緊測試通知...';
+  try{
+    var res = await fetch(PUSH_API + '/bark-test', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ bark:key }) });
+    msg.textContent = res.ok ? '✅ 已儲存，你部機應該收到測試通知' : '⚠️ 已儲存，但測試通知發唔到，請檢查 Key';
+  }catch(e){ msg.textContent = '⚠️ 已儲存，但連唔到推送伺服器，請稍後再試'; }
+}
+document.getElementById('barkset').addEventListener('click', openBark);
+document.getElementById('modal').addEventListener('click', function(e){
+  var b = e.target.closest('[data-bark]'); if(!b) return;
+  var act = b.dataset.bark;
+  if(act==='bg' && e.target !== b) return;   // 撳 sheet 入面唔好關
+  if(act==='save') saveBark();
+  else if(act==='clear'){ barkKey = null; save('barkKey', null); closeBark(); }
+  else closeBark();
+});
+
 /* ================= 出門提醒 ================= */
 // 有 PUSH_API:交畀推送伺服器,鎖咗機都會收到;冇嘅話要開住網頁先會響
 var vapidPub = null;
@@ -983,8 +1031,9 @@ function loadPushInfo(){
 }
 // 將提醒交畀推送伺服器,成功就回傳伺服器 id。用 Bark 唔使瀏覽器通知權限
 async function pushRegister(payload){
-  if(!pushInfo) await loadPushInfo();
-  if(!(pushInfo && pushInfo.bark)){
+  if(barkKey) payload.bark = barkKey;   // 用自己嘅 Bark Key,唔使瀏覽器通知權限
+  else {
+    if(!pushInfo) await loadPushInfo();
     var perm = null;
     try{ perm = Notification.requestPermission(); }catch(e){}   // 盡量喺撳嘅時候即刻問
     if(!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('unsupported');
@@ -1062,6 +1111,8 @@ if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch
 loadPushInfo();
 if(!TABS.some(function(t){ return t.id===active; })) active = 'out';
 document.getElementById('ver').textContent = VERSION + (DEMO ? ' · 預覽模式' : '');
+barkLabel();
+if(!PUSH_API) document.getElementById('barkset').style.display = 'none';
 document.getElementById('ver').addEventListener('click', function(){
   if(DEMO) setDemo(false);
   else if(confirm('開啟預覽模式？\n會用模擬班次,方便測試出門提醒。')) setDemo(true);

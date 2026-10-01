@@ -63,23 +63,21 @@ iPhone 的網頁推送有以下限制：
 
 ---
 
-## 改用 Bark 推送（可選，通知不會顯示「from ...」）
+## Bark 推送（每人用自己的 Key，通知不會顯示「from ...」）
 
-網頁 app 的推送通知一定會顯示「from 九巴到站」。改用 Bark app 推送，通知就會像原生 app 一樣。
+網頁 app 的推送通知一定會顯示「from 九巴到站」。改用 Bark app 推送，通知就會像原生 app 一樣。每個用戶都可以用自己的 Bark，提醒只會發到自己的手機。
 
-1. 在 App Store 安裝 **Bark**，打開後複製你的網址，例如 `https://api.day.app/abcdEFGH1234/...`，中間那段 `abcdEFGH1234` 就是你的 Key。
-2. Cloudflare → `kmb-eta-push` Worker → **Settings** → **Variables and Secrets** → **Add**：
-   - **Type** 選 **Secret**
-   - **Variable name** 填 `BARK_KEY`
-   - **Value** 貼上你的 Key
-3. 儲存後，重新貼上最新的 [`push-worker.js`](push-worker.js)，然後按 **Deploy**。
-4. 打開 `https://kmb-eta-push.<你的子網域>.workers.dev/vapid`，應該會看到 `"bark":true`。
+1. 在 App Store 安裝 **Bark**，打開後允許通知，然後複製首頁的網址，例如 `https://api.day.app/abcdEFGH1234/...`。
+2. 打開九巴到站網頁，按頁面底部的 **「🔔 設定 Bark 推送」**。
+3. 貼上網址（或者只貼中間的 Key），按 **「儲存並發測試通知」**。收到測試通知就代表成功。
 
-⚠️ Key 等於你手機的推送地址，**不要**放入網頁程式碼或 GitHub，也不要公開分享。只存在 Cloudflare 的 Secret 裡。
+Key 只會儲存在那部手機的瀏覽器裡，不會放入網頁程式碼或 GitHub。設定提醒時，Key 會傳給推送伺服器，用來發送通知。
 
-設定 Bark 後，就不需要「加入主畫面」，直接在 Safari 打開網頁也可以設定推送提醒。
+設定 Bark 後，就不需要「加入主畫面」，直接在 Safari 打開網頁也可以收到推送提醒。
 
 Bark 通知會使用「重要提醒」，靜音模式和勿擾模式下也會響一次。第一次收到時，如果 iPhone 詢問是否允許 Bark 發送「重要提醒」，請按 **允許**。
+
+> 舊版本曾經使用 Cloudflare 的 `BARK_KEY` 密鑰。新版本已經不需要，可以在 Worker → Settings → Variables and Secrets 刪除。
 
 ---
 
