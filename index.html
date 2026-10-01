@@ -129,7 +129,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.9.1';   // 每次改版記得更新
+var VERSION       = 'v2.9.2';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -155,7 +155,7 @@ var TABS = [
     { code:'YL244', name:'YOHO MIX', routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] },
     { code:'YL242', name:'YOHO I',   routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] } ] },
   { id:'seph', e:'💄', name:'Sephora', cards:[
-    { code:'YL369', name:'同樂街', buffer:20, routes:[{r:'968',hint:'銅鑼灣'}] },
+    { code:'YL369', name:'同樂街', routes:[{r:'968',hint:'銅鑼灣'}] },
     { code:'YL392', name:'YOHO II', routes:[{r:'968',hint:'銅鑼灣'}] } ] },
   { id:'sephb', e:'🌃', name:'Sephora回家', cards:[
     { code:'CW767', name:'永吉街', xfer:'968', routes:[{r:'968',hint:'元朗'}] },
