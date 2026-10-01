@@ -129,7 +129,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.9.2';   // 每次改版記得更新
+var VERSION       = 'v2.10.0';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -155,8 +155,8 @@ var TABS = [
     { code:'YL244', name:'YOHO MIX', routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] },
     { code:'YL242', name:'YOHO I',   routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] } ] },
   { id:'seph', e:'💄', name:'Sephora', cards:[
-    { code:'YL369', name:'同樂街', routes:[{r:'968',hint:'銅鑼灣'}] },
-    { code:'YL392', name:'YOHO II', routes:[{r:'968',hint:'銅鑼灣'}] } ] },
+    { code:'YL369', name:'同樂街', arrive:true, routes:[{r:'968',hint:'銅鑼灣'}] },
+    { code:'YL392', name:'YOHO II', arrive:true, routes:[{r:'968',hint:'銅鑼灣'}] } ] },
   { id:'sephb', e:'🌃', name:'Sephora回家', cards:[
     { code:'CW767', name:'永吉街', xfer:'968', routes:[{r:'968',hint:'元朗'}] },
     { code:'YL236', name:'大欖隧道轉車站', routes:[{r:'68E',hint:'元朗公園'}] },
@@ -245,16 +245,17 @@ async function fetchJson(url){
 /* ================= 站點清單(每星期更新一次) ================= */
 async function ensureStops(){
   if(stops) return;
-  var cached = load('kmbStops');
+  save('kmbStops', null);   // 舊版快取(冇站名)
+  var cached = load('kmbStops2');
   if(cached && Date.now() - cached.ts < 7*864e5){ buildStops(cached.rows); return; }
   try{
     var json = await fetchJson(KMB + 'stop');
     var rows = [];
     (json.data||[]).forEach(function(s){
       var m = /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_tc || '') || /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_en || '');
-      rows.push([s.stop, m ? m[1] : '', +s.lat, +s.long]);
+      rows.push([s.stop, m ? m[1] : '', +s.lat, +s.long, s.name_tc || '']);
     });
-    save('kmbStops', { ts:Date.now(), rows:rows });
+    save('kmbStops2', { ts:Date.now(), rows:rows });
     buildStops(rows);
   }catch(e){
     if(cached) buildStops(cached.rows);
@@ -263,7 +264,7 @@ async function ensureStops(){
 function buildStops(rows){
   stops = {};
   rows.forEach(function(r){
-    stopById[r[0]] = { lat:r[2], lng:r[3] };
+    stopById[r[0]] = { lat:r[2], lng:r[3], name:r[4] || '' };
     if(r[1] && !stops[r[1]]) stops[r[1]] = { id:r[0], lat:r[2], lng:r[3] };
   });
 }
@@ -331,10 +332,11 @@ async function load968Eta(){
 }
 
 // 由某站某時間,一站一站推算同一架車去到目標站嘅時間(巴士唔會互相超越)
-function chain(fromSeq, fromEta, toSeq){
+function chain(fromSeq, fromEta, toSeq, map){
+  map = map || r968.map;
   var cur = fromEta;
   for(var s=fromSeq+1; s<=toSeq; s++){
-    var list = r968.map[s];
+    var list = map[s];
     if(!list) continue;
     var next = list.filter(function(t){ return t >= cur - 60000; })[0];
     if(next==null) return null;
@@ -361,6 +363,88 @@ function track968(){
     if(!found && Date.now() - sel968.eta > 30*60000) sel968 = null;
   }
   save('sel968', sel968);
+}
+
+/* ================= 968 到達時間(Sephora:去怡和大廈) ================= */
+var ARRIVE = { route:'968', name:'怡和大廈', match:/怡和大廈/ };
+var arr = { ctx:null, map:null, failed:false };
+var selArr = load('selArr');   // {code, t}
+
+async function ensureArriveCtx(){
+  if(arr.ctx || !stops) return;
+  var cached = load('arrCtx');
+  if(cached && Date.now() - cached.ts < 864e5){ arr.ctx = cached; return; }
+  var codes = TABS.reduce(function(a, tb){ return a.concat(tb.cards.filter(function(c){ return c.arrive; }).map(function(c){ return c.code; })); }, []);
+  var bounds = [['outbound','O'],['inbound','I']];
+  for(var i=0;i<bounds.length;i++){
+    try{
+      var json = await fetchJson(KMB + 'route-stop/' + ARRIVE.route + '/' + bounds[i][0] + '/1');
+      var list = (json.data||[]).map(function(d){ return { seq:+d.seq, id:d.stop }; });
+      var seqs = {};
+      codes.forEach(function(c){ var id = stopId(c); list.forEach(function(x){ if(x.id===id) seqs[c] = x.seq; }); });
+      if(!Object.keys(seqs).length) continue;
+      var target = list.filter(function(x){ return ARRIVE.match.test((stopById[x.id]||{}).name || ''); })[0];
+      arr.ctx = { ts:Date.now(), dir:bounds[i][1], seqs:seqs, targetSeq:target ? target.seq : null };
+      if(target) save('arrCtx', arr.ctx);
+      return;
+    }catch(e){}
+  }
+  arr.failed = true;
+}
+
+async function loadArriveEta(){
+  if(!arr.ctx) return;
+  try{
+    var json = await fetchJson(KMB + 'route-eta/' + ARRIVE.route + '/1');
+    var map = {};
+    (json.data||[]).forEach(function(d){
+      if(d.dir !== arr.ctx.dir || !d.eta) return;
+      (map[d.seq] = map[d.seq] || []).push(new Date(d.eta).getTime());
+    });
+    Object.keys(map).forEach(function(k){ map[k].sort(function(a,b){ return a-b; }); });
+    arr.map = map;
+  }catch(e){}
+}
+
+// 揀咗嗰班車:跟住九巴更新時間;車走咗就取消
+function trackArrive(){
+  if(!selArr) return;
+  var st = eta[selArr.code];
+  if(st && st.lastOk){
+    var near = st.data.filter(function(d){ return d.route===ARRIVE.route && d.eta; })
+      .map(function(d){ return new Date(d.eta).getTime(); })
+      .filter(function(t){ return Math.abs(t - selArr.t) <= 4*60000; })
+      .sort(function(a,b){ return Math.abs(a-selArr.t) - Math.abs(b-selArr.t); })[0];
+    if(near!=null) selArr.t = near;
+  }
+  if(Date.now() > selArr.t + 2*60000) selArr = null;
+  save('selArr', selArr);
+}
+
+// 一站一站推算;推唔到就用前面最近一班車嘅車程估算
+function arriveAt(code, t){
+  var c = arr.ctx, from = c && c.seqs[code];
+  if(from==null || c.targetSeq==null || c.targetSeq <= from || !arr.map) return null;
+  var a = chain(from, t, c.targetSeq, arr.map);
+  if(a!=null) return { t:a, exact:true };
+  var board = (arr.map[from] || []).slice().sort(function(x,y){ return Math.abs(x-t) - Math.abs(y-t); });
+  for(var i=0;i<board.length;i++){
+    var b = chain(from, board[i], c.targetSeq, arr.map);
+    if(b!=null) return { t:t + (b - board[i]), exact:false };
+  }
+  return null;
+}
+
+function panelArrive(code, t){
+  var h = '<div class="xfer"><div class="xpt">', c = arr.ctx;
+  var msg = function(m){ return h + '<div class="xpt-h">' + ARRIVE.name + '</div><div class="xmsg">' + m + '</div></div></div>'; };
+  if(!c) return msg(arr.failed ? '暫時計唔到,請稍後再試' : '計緊到達時間...');
+  if(c.targetSeq==null) return msg(ARRIVE.route + ' 路線搵唔到' + ARRIVE.name + '站');
+  if(!arr.map) return msg('計緊到達時間...');
+  var a = arriveAt(code, t);
+  if(!a) return msg('暫時計唔到,車行近啲再試');
+  return h + '<div class="xpt-h">' + ARRIVE.name + '<span>' + ARRIVE.route + ' 約 ' + hm(a.t) + ' 到</span></div>' +
+         '<div class="xmsg">車程約 ' + Math.round((a.t - t)/60000) + ' 分鐘' + (a.exact ? '' : '(按前一班車估算)') + '</div></div></div>';
 }
 
 /* ================= 港鐵機場快綫 ================= */
@@ -416,12 +500,16 @@ async function refresh(){
   var missing = need.codes.some(function(c){ return !KNOWN[c]; });
   if(missing || need.r968) await ensureStops();
   if(tab.id==='sephb') await ensure968Ctx();
+  var needArr = selArr && tab.cards.some(function(c){ return c.arrive; });
+  if(needArr){ await ensureStops(); await ensureArriveCtx(); }
   var jobs = need.codes.map(loadEta);
   if(need.ael){ jobs.push(loadMtr('AIR')); jobs.push(loadMtr('TSY')); }
   if(tab.id==='sephb' && sel968) jobs.push(load968Eta());
+  if(needArr) jobs.push(loadArriveEta());
   await Promise.allSettled(jobs);
   if(need.ael) trackAEL();
   trackReminder();
+  trackArrive();
   refreshing = false;
   document.getElementById('refresh').classList.remove('spin');
   render();
@@ -433,7 +521,7 @@ function etaRowHtml(t, opts){
   var left = minsTo(t), buf = opts.buffer || 0, slack = left - buf;
   var h = '<div class="eta-row' + (opts.tap ? ' tap' : '') + (opts.open ? ' open' : '') + '"' +
           (opts.tap ? ' role="button" tabindex="0" data-sel="' + opts.tap + '" data-t="' + t + '"' : '') +
-          (opts.tap==='rem' ? ' data-code="' + esc(opts.code) + '" data-route="' + esc(opts.route) + '"' : '') + '>';
+          (opts.tap==='rem' || opts.tap==='arr' ? ' data-code="' + esc(opts.code) + '" data-route="' + esc(opts.route) + '"' : '') + '>';
   h += '<div class="when"><div class="arr">' + (opts.tag ? '<span class="rno tag">' + esc(opts.tag) + '</span>' : '') + hm(t) + '<small>' + (opts.verb || '到站') + '</small>' +
        (opts.rmk ? '<span class="rmk">' + esc(opts.rmk) + '</span>' : '') +
        (opts.bell ? '<span class="bell">' + opts.bell + '</span>' : '') + '</div>';
@@ -612,6 +700,12 @@ function kmbCard(card){
     }
     g.times.slice(0, g.merged ? 5 : 3).forEach(function(x){
       var open = canTap && sel968 && !matched && Math.abs(x.t - selT) <= 90000;
+      if(card.arrive && (x.route || g.route)===ARRIVE.route){
+        var on = !!selArr && selArr.code===card.code && Math.abs(x.t - selArr.t) <= 90000;
+        h += etaRowHtml(x.t, { rmk:x.rmk, tap:'arr', code:card.code, route:ARRIVE.route, open:on });
+        if(on) h += panelArrive(card.code, x.t);
+        return;
+      }
       if(!canTap && card.buffer){ h += remRowHtml(card, x.route || g.route, x, g.merged); return; }
       h += etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:canTap ? '968' : '', open:open, tag:g.merged ? x.route : '' });
       if(open){ matched = true; h += panel968(); }
@@ -690,6 +784,11 @@ function onContent(e){
     if(PUSH_API) setupPush(reminder);
     else try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
     render(); return;
+  }
+  if(row.dataset.sel==='arr'){
+    var on = selArr && selArr.code===row.dataset.code && Math.abs(t - selArr.t) <= 90000;
+    selArr = on ? null : { code:row.dataset.code, t:t };
+    save('selArr', selArr); render(); if(selArr) refresh(); return;
   }
   if(row.dataset.sel==='968'){
     if(sel968 && Math.abs(t - (sel968.board||sel968.eta)) <= 90000){ sel968 = null; save('sel968', null); render(); return; }
