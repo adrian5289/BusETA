@@ -102,6 +102,20 @@
   .demo{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:#6b3fa0;background:#f1e8fb;border-radius:12px;padding:9px 12px;margin-bottom:14px}
   .demo button{border:0;border-radius:999px;background:#6b3fa0;color:#fff;font:inherit;font-size:12px;padding:5px 10px;cursor:pointer}
   #ver{cursor:pointer}
+  .shift-btn{display:block;width:100%;border:0;border-radius:14px;background:var(--card);color:var(--accent);font:inherit;font-size:15px;font-weight:600;padding:12px;margin-bottom:14px;box-shadow:0 2px 10px rgba(52,89,154,.08);cursor:pointer}
+  .shift-on{display:flex;align-items:center;gap:8px;background:var(--card);border-radius:14px;padding:10px 12px;margin-bottom:14px;box-shadow:0 2px 10px rgba(52,89,154,.08);font-size:14px}
+  .shift-on .txt{flex:1;line-height:1.4}
+  .shift-on .sub{display:block;font-size:12px;color:var(--sub)}
+  .shift-on button{border:0;background:var(--accent-soft);color:var(--accent);border-radius:999px;font:inherit;font-size:13px;padding:6px 10px;cursor:pointer}
+  .sheet-bg{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center}
+  .sheet{width:100%;max-width:32rem;background:var(--card);border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px))}
+  .sheet h2{margin:0 0 4px;font-size:18px}
+  .sheet p{margin:0 0 12px;font-size:13px;color:var(--sub)}
+  .shift-opt{display:flex;align-items:center;width:100%;gap:12px;border:0;border-radius:12px;background:var(--accent-soft);color:var(--text);font:inherit;padding:12px 14px;margin-bottom:8px;cursor:pointer;text-align:left}
+  .shift-opt b{min-width:44px;font-size:18px;color:var(--accent)}
+  .shift-opt .when{flex:1;font-size:14px}
+  .shift-opt .ntf{font-size:14px;font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
+  .sheet .cancel{width:100%;border:0;background:none;color:var(--sub);font:inherit;font-size:15px;padding:10px;cursor:pointer}
   .alarm button{border:0;border-radius:999px;background:var(--orange);color:#fff;font:inherit;font-size:13px;padding:6px 12px;cursor:pointer}
 </style>
 </head>
@@ -129,7 +143,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.8.2';   // 每次改版記得更新
+var VERSION       = 'v2.11.1';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -155,8 +169,8 @@ var TABS = [
     { code:'YL244', name:'YOHO MIX', routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] },
     { code:'YL242', name:'YOHO I',   routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] } ] },
   { id:'seph', e:'💄', name:'Sephora', cards:[
-    { code:'YL369', name:'同樂街', buffer:20, routes:[{r:'968',hint:'銅鑼灣'}] },
-    { code:'YL392', name:'YOHO II', routes:[{r:'968',hint:'銅鑼灣'}] } ] },
+    { code:'YL369', name:'同樂街', arrive:true, routes:[{r:'968',hint:'銅鑼灣'}] },
+    { code:'YL392', name:'YOHO II', arrive:true, routes:[{r:'968',hint:'銅鑼灣'}] } ] },
   { id:'sephb', e:'🌃', name:'Sephora回家', cards:[
     { code:'CW767', name:'永吉街', xfer:'968', routes:[{r:'968',hint:'元朗'}] },
     { code:'YL236', name:'大欖隧道轉車站', routes:[{r:'68E',hint:'元朗公園'}] },
@@ -184,6 +198,18 @@ var active = load('tab') || 'out';
 var sel968 = load('sel968');
 var selAEL = load('selAEL');
 var reminder = load('reminder');   // {code, route, t, buf, fired}
+
+// Sephora 返工更:早 15 分鐘到,預 1 小時 15 分鐘車程(連行去巴士站)
+var SHIFTS = [
+  { id:'B',   start:'11:00' },
+  { id:'C',   start:'12:00' },
+  { id:'C15', start:'12:15' },
+  { id:'E',   start:'13:00' },
+  { id:'E15', start:'13:15' }
+];
+var SHIFT_EARLY = 15, SHIFT_TRAVEL = 75;
+var shiftAlarm = load('shiftAlarm');   // {id, start, at, serverId, push, fired}
+var shiftPicker = false;
 var refreshing = false, again = false, timers = {};
 
 /* ================= 工具 ================= */
@@ -245,16 +271,17 @@ async function fetchJson(url){
 /* ================= 站點清單(每星期更新一次) ================= */
 async function ensureStops(){
   if(stops) return;
-  var cached = load('kmbStops');
+  save('kmbStops', null);   // 舊版快取(冇站名)
+  var cached = load('kmbStops2');
   if(cached && Date.now() - cached.ts < 7*864e5){ buildStops(cached.rows); return; }
   try{
     var json = await fetchJson(KMB + 'stop');
     var rows = [];
     (json.data||[]).forEach(function(s){
       var m = /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_tc || '') || /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_en || '');
-      rows.push([s.stop, m ? m[1] : '', +s.lat, +s.long]);
+      rows.push([s.stop, m ? m[1] : '', +s.lat, +s.long, s.name_tc || '']);
     });
-    save('kmbStops', { ts:Date.now(), rows:rows });
+    save('kmbStops2', { ts:Date.now(), rows:rows });
     buildStops(rows);
   }catch(e){
     if(cached) buildStops(cached.rows);
@@ -263,7 +290,7 @@ async function ensureStops(){
 function buildStops(rows){
   stops = {};
   rows.forEach(function(r){
-    stopById[r[0]] = { lat:r[2], lng:r[3] };
+    stopById[r[0]] = { lat:r[2], lng:r[3], name:r[4] || '' };
     if(r[1] && !stops[r[1]]) stops[r[1]] = { id:r[0], lat:r[2], lng:r[3] };
   });
 }
@@ -331,10 +358,11 @@ async function load968Eta(){
 }
 
 // 由某站某時間,一站一站推算同一架車去到目標站嘅時間(巴士唔會互相超越)
-function chain(fromSeq, fromEta, toSeq){
+function chain(fromSeq, fromEta, toSeq, map){
+  map = map || r968.map;
   var cur = fromEta;
   for(var s=fromSeq+1; s<=toSeq; s++){
-    var list = r968.map[s];
+    var list = map[s];
     if(!list) continue;
     var next = list.filter(function(t){ return t >= cur - 60000; })[0];
     if(next==null) return null;
@@ -361,6 +389,87 @@ function track968(){
     if(!found && Date.now() - sel968.eta > 30*60000) sel968 = null;
   }
   save('sel968', sel968);
+}
+
+/* ================= 968 到達時間(Sephora:去怡和大廈) ================= */
+var ARRIVE = { route:'968', name:'怡和大廈', match:/怡和大廈/ };
+var arr = { ctx:null, map:null, failed:false };
+var selArr = load('selArr');   // {code, t}
+
+async function ensureArriveCtx(){
+  if(arr.ctx || !stops) return;
+  var cached = load('arrCtx');
+  if(cached && Date.now() - cached.ts < 864e5){ arr.ctx = cached; return; }
+  var codes = TABS.reduce(function(a, tb){ return a.concat(tb.cards.filter(function(c){ return c.arrive; }).map(function(c){ return c.code; })); }, []);
+  var bounds = [['outbound','O'],['inbound','I']];
+  for(var i=0;i<bounds.length;i++){
+    try{
+      var json = await fetchJson(KMB + 'route-stop/' + ARRIVE.route + '/' + bounds[i][0] + '/1');
+      var list = (json.data||[]).map(function(d){ return { seq:+d.seq, id:d.stop }; });
+      var seqs = {};
+      codes.forEach(function(c){ var id = stopId(c); list.forEach(function(x){ if(x.id===id) seqs[c] = x.seq; }); });
+      if(!Object.keys(seqs).length) continue;
+      var target = list.filter(function(x){ return ARRIVE.match.test((stopById[x.id]||{}).name || ''); })[0];
+      arr.ctx = { ts:Date.now(), dir:bounds[i][1], seqs:seqs, targetSeq:target ? target.seq : null };
+      if(target) save('arrCtx', arr.ctx);
+      return;
+    }catch(e){}
+  }
+  arr.failed = true;
+}
+
+async function loadArriveEta(){
+  if(!arr.ctx) return;
+  try{
+    var json = await fetchJson(KMB + 'route-eta/' + ARRIVE.route + '/1');
+    var map = {};
+    (json.data||[]).forEach(function(d){
+      if(d.dir !== arr.ctx.dir || !d.eta) return;
+      (map[d.seq] = map[d.seq] || []).push(new Date(d.eta).getTime());
+    });
+    Object.keys(map).forEach(function(k){ map[k].sort(function(a,b){ return a-b; }); });
+    arr.map = map;
+  }catch(e){}
+}
+
+// 揀咗嗰班車:跟住九巴更新時間;車走咗就取消
+function trackArrive(){
+  if(!selArr) return;
+  var st = eta[selArr.code];
+  if(st && st.lastOk){
+    var near = st.data.filter(function(d){ return d.route===ARRIVE.route && d.eta; })
+      .map(function(d){ return new Date(d.eta).getTime(); })
+      .filter(function(t){ return Math.abs(t - selArr.t) <= 4*60000; })
+      .sort(function(a,b){ return Math.abs(a-selArr.t) - Math.abs(b-selArr.t); })[0];
+    if(near!=null) selArr.t = near;
+  }
+  if(Date.now() > selArr.t + 2*60000) selArr = null;
+  save('selArr', selArr);
+}
+
+// 一站一站推算;推唔到就用前面最近一班車嘅車程估算
+function arriveAt(code, t){
+  var c = arr.ctx, from = c && c.seqs[code];
+  if(from==null || c.targetSeq==null || c.targetSeq <= from || !arr.map) return null;
+  var a = chain(from, t, c.targetSeq, arr.map);
+  if(a!=null) return { t:a, exact:true };
+  var board = (arr.map[from] || []).slice().sort(function(x,y){ return Math.abs(x-t) - Math.abs(y-t); });
+  for(var i=0;i<board.length;i++){
+    var b = chain(from, board[i], c.targetSeq, arr.map);
+    if(b!=null) return { t:t + (b - board[i]), exact:false };
+  }
+  return null;
+}
+
+function panelArrive(code, t){
+  var h = '<div class="xfer"><div class="xpt">', c = arr.ctx;
+  var msg = function(m){ return h + '<div class="xpt-h">' + ARRIVE.name + '</div><div class="xmsg">' + m + '</div></div></div>'; };
+  if(!c) return msg(arr.failed ? '暫時計唔到,請稍後再試' : '計緊到達時間...');
+  if(c.targetSeq==null) return msg(ARRIVE.route + ' 路線搵唔到' + ARRIVE.name + '站');
+  if(!arr.map) return msg('計緊到達時間...');
+  var a = arriveAt(code, t);
+  if(!a) return msg('暫時計唔到,車行近啲再試');
+  return h + '<div class="xpt-h">' + ARRIVE.name + '<span>' + ARRIVE.route + ' 約 ' + hm(a.t) + ' 到</span></div></div></div>';
 }
 
 /* ================= 港鐵機場快綫 ================= */
@@ -416,12 +525,16 @@ async function refresh(){
   var missing = need.codes.some(function(c){ return !KNOWN[c]; });
   if(missing || need.r968) await ensureStops();
   if(tab.id==='sephb') await ensure968Ctx();
+  var needArr = selArr && tab.cards.some(function(c){ return c.arrive; });
+  if(needArr){ await ensureStops(); await ensureArriveCtx(); }
   var jobs = need.codes.map(loadEta);
   if(need.ael){ jobs.push(loadMtr('AIR')); jobs.push(loadMtr('TSY')); }
   if(tab.id==='sephb' && sel968) jobs.push(load968Eta());
+  if(needArr) jobs.push(loadArriveEta());
   await Promise.allSettled(jobs);
   if(need.ael) trackAEL();
   trackReminder();
+  trackArrive();
   refreshing = false;
   document.getElementById('refresh').classList.remove('spin');
   render();
@@ -433,7 +546,7 @@ function etaRowHtml(t, opts){
   var left = minsTo(t), buf = opts.buffer || 0, slack = left - buf;
   var h = '<div class="eta-row' + (opts.tap ? ' tap' : '') + (opts.open ? ' open' : '') + '"' +
           (opts.tap ? ' role="button" tabindex="0" data-sel="' + opts.tap + '" data-t="' + t + '"' : '') +
-          (opts.tap==='rem' ? ' data-code="' + esc(opts.code) + '" data-route="' + esc(opts.route) + '"' : '') + '>';
+          (opts.tap==='rem' || opts.tap==='arr' ? ' data-code="' + esc(opts.code) + '" data-route="' + esc(opts.route) + '"' : '') + '>';
   h += '<div class="when"><div class="arr">' + (opts.tag ? '<span class="rno tag">' + esc(opts.tag) + '</span>' : '') + hm(t) + '<small>' + (opts.verb || '到站') + '</small>' +
        (opts.rmk ? '<span class="rmk">' + esc(opts.rmk) + '</span>' : '') +
        (opts.bell ? '<span class="bell">' + opts.bell + '</span>' : '') + '</div>';
@@ -446,10 +559,23 @@ function etaRowHtml(t, opts){
   return h + '</div>';
 }
 
+// 九巴會回傳兩個方向嘅班次;只要往設定目的地嗰邊
+function destMatch(dest, hint){
+  var a = normDest(dest), b = normDest(hint);
+  return !a || !b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0;
+}
+function hintFor(code, route){
+  var hint = '';
+  TABS.forEach(function(tb){ tb.cards.forEach(function(c){
+    if(c.code === code) c.routes.forEach(function(r){ if(r.r === route && !hint) hint = r.hint; });
+  }); });
+  return hint;
+}
+
 function groupsFor(card, st){
   var out = [];
   card.routes.forEach(function(r){
-    var entries = st.data.filter(function(d){ return d.route === r.r; });
+    var entries = st.data.filter(function(d){ return d.route === r.r && destMatch(d.dest_tc, r.hint); });
     if(!entries.length){ out.push({ route:r.r, dest:r.hint, times:[], remark:'' }); return; }
     var map = {}, order = [];
     entries.forEach(function(d){
@@ -472,7 +598,9 @@ function connList(code, routes, arrive){
   var st = eta[code];
   if(!st || !st.lastOk) return null;
   var list = [];
-  st.data.forEach(function(d){ if(routes.indexOf(d.route) >= 0 && d.eta) list.push({ r:d.route, t:new Date(d.eta).getTime() }); });
+  st.data.forEach(function(d){
+    if(routes.indexOf(d.route) >= 0 && d.eta && destMatch(d.dest_tc, hintFor(code, d.route))) list.push({ r:d.route, t:new Date(d.eta).getTime() });
+  });
   var seen = {}, count = {}, perRoute = routes.length > 1 ? 2 : 3;   // 多條線時每條最多 2 班,唔會畀一條線霸晒
   return list.filter(function(c){ var k = c.r + c.t; if(seen[k]) return false; seen[k] = 1; return c.t >= arrive - 5*60000; })
     .sort(function(a,b){ return a.t-b.t; })
@@ -597,6 +725,12 @@ function kmbCard(card){
     }
     g.times.slice(0, g.merged ? 5 : 3).forEach(function(x){
       var open = canTap && sel968 && !matched && Math.abs(x.t - selT) <= 90000;
+      if(card.arrive && (x.route || g.route)===ARRIVE.route){
+        var on = !!selArr && selArr.code===card.code && Math.abs(x.t - selArr.t) <= 90000;
+        h += etaRowHtml(x.t, { rmk:x.rmk, tap:'arr', code:card.code, route:ARRIVE.route, open:on });
+        if(on) h += panelArrive(card.code, x.t);
+        return;
+      }
       if(!canTap && card.buffer){ h += remRowHtml(card, x.route || g.route, x, g.merged); return; }
       h += etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:canTap ? '968' : '', open:open, tag:g.merged ? x.route : '' });
       if(open){ matched = true; h += panel968(); }
@@ -640,9 +774,12 @@ function render(){
   var alarm = reminder && reminder.fired
     ? '<div class="alarm"><span>🔔 夠鐘出門！' + esc(reminder.route) + ' ' + hm(reminder.t) + ' 到站</span><button class="x-btn" data-clear="rem">知道</button></div>' : '';
   var demo = DEMO ? '<div class="demo"><span>🧪 預覽模式：班次係模擬資料</span><button data-demo="off">返回正常版</button></div>' : '';
+  if(active==='seph') alarm += shiftHtml();
+  if(shiftAlarm && shiftAlarm.fired)
+    alarm = '<div class="alarm"><span>⏰ 夠鐘出門返工！' + esc(shiftAlarm.id) + ' 更 ' + esc(shiftAlarm.start) + '</span><button class="x-btn" data-clear="shift">知道</button></div>' + alarm;
   document.getElementById('content').innerHTML = demo + alarm + tabById(active).cards.map(function(c){
     return c.kind==='ael' ? aelCard(c) : kmbCard(c);
-  }).join('');
+  }).join('') + (shiftPicker ? pickerHtml() : '');
 }
 
 /* ================= 操作 ================= */
@@ -652,11 +789,19 @@ document.getElementById('tabs').addEventListener('click', function(e){
 });
 
 function onContent(e){
+  if(e.type==='click'){
+    var sp = e.target.closest('[data-shift]');
+    if(sp){ shiftPicker = sp.dataset.shift==='open'; render(); return; }
+    var pick = e.target.closest('[data-shift-pick]');
+    if(pick){ setShift(pick.dataset.shiftPick); return; }
+    if(shiftPicker && e.target.classList.contains('sheet-bg')){ shiftPicker = false; render(); return; }
+  }
   if(e.type==='click' && e.target.closest('[data-demo]')){ setDemo(false); return; }
   var x = e.target.closest('.x-btn');
   if(x && e.type==='click'){
     if(x.dataset.clear==='968'){ sel968 = null; save('sel968', null); }
     else if(x.dataset.clear==='rem'){ clearReminder(); }
+    else if(x.dataset.clear==='shift'){ clearShift(); }
     else { selAEL = null; save('selAEL', null); }
     render(); return;
   }
@@ -675,6 +820,11 @@ function onContent(e){
     if(PUSH_API) setupPush(reminder);
     else try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
     render(); return;
+  }
+  if(row.dataset.sel==='arr'){
+    var on = selArr && selArr.code===row.dataset.code && Math.abs(t - selArr.t) <= 90000;
+    selArr = on ? null : { code:row.dataset.code, t:t };
+    save('selArr', selArr); render(); if(selArr) refresh(); return;
   }
   if(row.dataset.sel==='968'){
     if(sel968 && Math.abs(t - (sel968.board||sel968.eta)) <= 90000){ sel968 = null; save('sel968', null); render(); return; }
@@ -705,7 +855,71 @@ document.getElementById('refresh').addEventListener('click', refresh);
 })();
 
 /* ================= 排程(切走 app 就暫停) ================= */
-function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); }
+function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); checkShift(); }
+
+/* ================= 返工更出門提示 ================= */
+function shiftNotifyAt(start){
+  var p = start.split(':'), d = new Date();
+  d.setHours(+p[0], +p[1] - SHIFT_EARLY - SHIFT_TRAVEL, 0, 0);
+  if(d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);   // 今日已過就設聽日
+  return d.getTime();
+}
+function dayLabel(t){
+  var a = new Date(t), b = new Date();
+  return a.toDateString() === b.toDateString() ? '今日' : '聽日';
+}
+function shiftHtml(){
+  if(!shiftAlarm || shiftAlarm.fired) return '<button class="shift-btn" data-shift="open">⏰ 出門提示：揀返工更</button>';
+  var how = shiftAlarm.push==='on' ? '推送提醒' : shiftAlarm.push==='pending' ? '設定緊...' : shiftAlarm.push==='off' ? '要開住網頁先會提' : '';
+  return '<div class="shift-on"><span class="txt">⏰ <b>' + esc(shiftAlarm.id) + ' 更</b> 返 ' + esc(shiftAlarm.start) +
+         '<span class="sub">' + dayLabel(shiftAlarm.at) + ' ' + hm(shiftAlarm.at) + ' 提你出門' + (how ? ' · ' + how : '') + '</span></span>' +
+         '<button data-shift="open">更改</button><button class="x-btn" data-clear="shift" aria-label="取消">✕</button></div>';
+}
+function pickerHtml(){
+  return '<div class="sheet-bg"><div class="sheet" role="dialog" aria-label="揀返工更"><h2>揀返工更</h2>' +
+    '<p>早 ' + SHIFT_EARLY + ' 分鐘到，預 1 小時 ' + (SHIFT_TRAVEL - 60) + ' 分鐘車程(連行去巴士站)</p>' +
+    SHIFTS.map(function(s){
+      var at = shiftNotifyAt(s.start);
+      return '<button class="shift-opt" data-shift-pick="' + s.id + '"><b>' + s.id + '</b><span class="when">返 ' + s.start + '</span>' +
+             '<span class="ntf">' + dayLabel(at) + ' ' + hm(at) + ' 提你</span></button>';
+    }).join('') + '<button class="cancel" data-shift="close">取消</button></div></div>';
+}
+function setShift(id){
+  var s = SHIFTS.filter(function(x){ return x.id===id; })[0]; if(!s) return;
+  clearShift();
+  shiftAlarm = { id:s.id, start:s.start, at:shiftNotifyAt(s.start), fired:false, push:PUSH_API ? 'pending' : '' };
+  save('shiftAlarm', shiftAlarm); shiftPicker = false;
+  if(PUSH_API) setupShiftPush(shiftAlarm);
+  else try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
+  render();
+}
+async function setupShiftPush(a){
+  try{
+    var sid = await pushRegister({ kind:'alarm', at:a.at, title:'夠鐘出門返工！', body:a.id + ' 更 ' + a.start + ' 返工' });
+    if(shiftAlarm !== a){ cancelPush(sid); return; }
+    a.serverId = sid; a.push = 'on';
+  }catch(e){ if(shiftAlarm === a) a.push = 'off'; }
+  if(shiftAlarm === a){ save('shiftAlarm', a); render(); }
+}
+function clearShift(){
+  if(shiftAlarm && !shiftAlarm.fired) cancelPush(shiftAlarm.serverId);
+  shiftAlarm = null; save('shiftAlarm', null);
+}
+function checkShift(){
+  if(!shiftAlarm) return;
+  if(shiftAlarm.fired){ if(Date.now() > shiftAlarm.at + 3*3600e3){ shiftAlarm = null; save('shiftAlarm', null); render(); } return; }
+  if(Date.now() < shiftAlarm.at) return;
+  shiftAlarm.fired = true; save('shiftAlarm', shiftAlarm);
+  var body = shiftAlarm.id + ' 更 ' + shiftAlarm.start + ' 返工';
+  try{
+    if(shiftAlarm.push!=='on' && 'Notification' in window && Notification.permission==='granted'){
+      if(navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.ready.then(function(r){ r.showNotification('夠鐘出門返工！', { body:body, icon:'BUS.jpg' }); });
+      else new Notification('夠鐘出門返工！', { body:body, icon:'BUS.jpg' });
+    }
+  }catch(err){}
+  try{ if(navigator.vibrate) navigator.vibrate([300,150,300]); }catch(err){}
+  render();
+}
 
 /* ================= 出門提醒 ================= */
 // 有 PUSH_API:交畀推送伺服器,鎖咗機都會收到;冇嘅話要開住網頁先會響
@@ -722,24 +936,36 @@ function sameKey(sub, key){
   var a = new Uint8Array(k), b = b64uBytes(key);
   return a.length===b.length && a.every(function(x,i){ return x===b[i]; });
 }
-async function setupPush(r){
-  var perm = null;
-  try{ perm = Notification.requestPermission(); }catch(e){}   // 一定要喺撳嘅時候即刻問
-  try{
+var pushInfo = null;   // 伺服器設定:{publicKey, bark}
+function loadPushInfo(){
+  if(!PUSH_API || pushInfo) return Promise.resolve(pushInfo);
+  return fetchJson(PUSH_API + '/vapid').then(function(j){ pushInfo = j; return j; }).catch(function(){ return null; });
+}
+// 將提醒交畀推送伺服器,成功就回傳伺服器 id。用 Bark 唔使瀏覽器通知權限
+async function pushRegister(payload){
+  if(!pushInfo) await loadPushInfo();
+  if(!(pushInfo && pushInfo.bark)){
+    var perm = null;
+    try{ perm = Notification.requestPermission(); }catch(e){}   // 盡量喺撳嘅時候即刻問
     if(!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('unsupported');
     if(!perm || (await perm) !== 'granted') throw new Error('denied');
-    var id = stopId(r.code); if(!id) throw new Error('no stop id');
     var reg = await Promise.race([navigator.serviceWorker.ready, sleep(5000).then(function(){ throw new Error('sw timeout'); })]);
-    if(!vapidPub) vapidPub = (await fetchJson(PUSH_API + '/vapid')).publicKey;
+    if(!vapidPub) vapidPub = (pushInfo || await fetchJson(PUSH_API + '/vapid')).publicKey;
     var sub = await reg.pushManager.getSubscription();
     if(sub && !sameKey(sub, vapidPub)){ await sub.unsubscribe(); sub = null; }
     if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64uBytes(vapidPub) });
-    var res = await fetch(PUSH_API + '/reminders', { method:'POST', headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify({ subscription:sub.toJSON(), stopId:id, route:r.route, t:r.t, buf:r.buf, stop:r.name }) });
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    var j = await res.json();
-    if(reminder !== r){ cancelPush(j.id); return; }   // 設定期間已經取消或者換咗
-    r.serverId = j.id; r.push = 'on';
+    payload.subscription = sub.toJSON();
+  }
+  var res = await fetch(PUSH_API + '/reminders', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(payload) });
+  if(!res.ok) throw new Error('HTTP ' + res.status);
+  return (await res.json()).id;
+}
+async function setupPush(r){
+  try{
+    var id = stopId(r.code); if(!id) throw new Error('no stop id');
+    var sid = await pushRegister({ stopId:id, route:r.route, t:r.t, buf:r.buf, stop:r.name });
+    if(reminder !== r){ cancelPush(sid); return; }   // 設定期間已經取消或者換咗
+    r.serverId = sid; r.push = 'on';
   }catch(e){ if(reminder === r) r.push = 'off'; }
   if(reminder === r){ save('reminder', r); render(); }
 }
@@ -793,6 +1019,7 @@ window.addEventListener('online', refresh);
 window.addEventListener('pageshow', function(e){ if(e.persisted){ render(); refresh(); } });
 
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
+loadPushInfo();
 if(!TABS.some(function(t){ return t.id===active; })) active = 'out';
 document.getElementById('ver').textContent = VERSION + (DEMO ? ' · 預覽模式' : '');
 document.getElementById('ver').addEventListener('click', function(){
