@@ -160,7 +160,7 @@ var MTR = 'https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=AEL&sta=
 // 已知站點 ID;其餘會由九巴站點清單用站牌編號自動對返
 var KNOWN = {
   YL292:'C187E3771B7032EC', YL244:'21DA1E33BF580B96', YL242:'6A4B371546D489BF',
-  YL255:'8BE58FAD7E9C94C7', TY929:'83D9B6BE39530EEF'
+  YL255:'8BE58FAD7E9C94C7'
 };
 
 var TABS = [
@@ -180,7 +180,7 @@ var TABS = [
     { code:'YL255', name:'康樂路', buffer:20, routes:[{r:'E36',hint:'機場(地面運輸中心)'},{r:'E36S',hint:'機場(地面運輸中心)'},{r:'A36',hint:'機場(地面運輸中心)'}] } ] },
   { id:'aph', e:'🚆', name:'機場回家', cards:[
     { kind:'ael', name:'機場站', sub:'港鐵機場快綫' },
-    { code:'TY929', name:'青衣', routes:[{r:'68E',hint:'元朗公園'}] } ] }
+    { code:'TY928', name:'青衣', routes:[{r:'68E',hint:'元朗公園'}] } ] }
 ];
 
 // 968 轉車點;mins = 由永吉街(CW767)開出計嘅車程,跟九巴 app 嘅預計車程
@@ -522,7 +522,7 @@ function trackAEL(){
 function neededFor(tab){
   var codes = {}, needAel = false, need968 = false;
   tab.cards.forEach(function(c){
-    if(c.kind==='ael'){ needAel = true; codes.TY929 = 1; }
+    if(c.kind==='ael'){ needAel = true; codes.TY928 = 1; }
     else codes[c.code] = 1;
     if(c.xfer==='968'){ need968 = true; XFER968.forEach(function(x){ codes[x.near] = 1; }); }
   });
@@ -659,7 +659,7 @@ function panelAEL(){
   var tsy = selAEL.tsy || selAEL.air + AEL_RIDE_MIN*60000;
   var arrive = tsy + AEL_WALK_MIN*60000;
   var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣<span>行路' + AEL_WALK_MIN + '分鐘 約 ' + hm(arrive) + ' 到</span></div>';
-  h += connHtml(withStatus(connList('TY929', ['68E'], arrive), arrive));
+  h += connHtml(withStatus(connList('TY928', ['68E'], arrive), arrive));
   return h + '</div></div>';
 }
 
