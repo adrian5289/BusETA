@@ -92,6 +92,7 @@
   .xpt+.xpt{border-top:1px solid var(--line);margin-top:4px;padding-top:10px}
   .xpt-h{display:flex;flex-wrap:wrap;gap:2px 8px;justify-content:space-between;font-size:15px;font-weight:600;margin-bottom:4px}
   .xpt-h span{font-weight:400;color:var(--sub);font-size:13px}
+  .xpt-h .walk{text-align:right;line-height:1.4}
   .conn{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;font-variant-numeric:tabular-nums}
   .conn .wait{font-size:12px;color:var(--sub);margin-left:8px}
   .xmsg{font-size:13px;color:var(--dim);padding:2px 0}
@@ -670,7 +671,7 @@ function panel968(){
 function panelAEL(){
   var tsy = selAEL.tsy || selAEL.air + AEL_RIDE_MIN*60000;
   var arrive = tsy + AEL_WALK_MIN*60000;
-  var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣<span>行路' + AEL_WALK_MIN + '分鐘 約 ' + hm(arrive) + ' 到</span></div>';
+  var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣<span class="walk">行路' + AEL_WALK_MIN + '分鐘<br>約 ' + hm(arrive) + ' 到巴士站</span></div>';
   h += connHtml(withStatus(connList('TY928', ['68E'], arrive), arrive));
   return h + '</div></div>';
 }
