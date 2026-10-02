@@ -92,6 +92,7 @@
   .xpt+.xpt{border-top:1px solid var(--line);margin-top:4px;padding-top:10px}
   .xpt-h{display:flex;flex-wrap:wrap;gap:2px 8px;justify-content:space-between;font-size:15px;font-weight:600;margin-bottom:4px}
   .xpt-h span{font-weight:400;color:var(--sub);font-size:13px}
+  .xpt-h .walk{text-align:right;line-height:1.4}
   .conn{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;font-variant-numeric:tabular-nums}
   .conn .wait{font-size:12px;color:var(--sub);margin-left:8px}
   .xmsg{font-size:13px;color:var(--dim);padding:2px 0}
@@ -144,7 +145,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.11.4';   // 每次改版記得更新
+var VERSION       = 'v2.11.5';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -499,16 +500,28 @@ async function loadMtr(sta){
   }catch(e){ st.error = true; }
 }
 
+// 機場開出 → 青衣到站:按次序逐班配對,每個青衣到站時間只畀一班車用
+// (港鐵每站只列最近幾班,後面嗰班未出現時唔可以借用前一班嘅時間)
+var AEL_MIN_RIDE = 10;
+function tsyFor(airT, air, tsy){
+  var last = -Infinity, res = null;
+  tsy = tsy.slice().sort(function(x,y){ return x-y; });
+  air.slice().sort(function(x,y){ return x-y; }).forEach(function(a){
+    if(a > airT + 1000) return;
+    var t = tsy.filter(function(x){ return x > last && x >= a + AEL_MIN_RIDE*60000 && x <= a + 22*60000; })[0];
+    if(t!=null) last = t;
+    if(Math.abs(a - airT) <= 1000) res = t!=null ? t : null;
+  });
+  return res;   // null = 用 AEL_RIDE_MIN 估計
+}
+
 function trackAEL(){
   if(!selAEL) return;
   var air = (mtr.AIR||{}).times || [], tsy = (mtr.TSY||{}).times || [];
   var a = air.filter(function(t){ return Math.abs(t - selAEL.air) <= 3*60000; })[0];
   if(a!=null){
     selAEL.air = a;
-    var want = a + AEL_RIDE_MIN*60000;
-    var m = tsy.filter(function(t){ return t >= a + 8*60000 && t <= a + 22*60000; })
-      .sort(function(x,y){ return Math.abs(x-want) - Math.abs(y-want); })[0];
-    selAEL.tsy = m!=null ? m : null;
+    selAEL.tsy = tsyFor(a, air, tsy);
   }else{
     var ref = selAEL.tsy || selAEL.air + AEL_RIDE_MIN*60000;
     var m2 = tsy.filter(function(t){ return Math.abs(t - ref) <= 5*60000; })[0];
@@ -658,7 +671,7 @@ function panel968(){
 function panelAEL(){
   var tsy = selAEL.tsy || selAEL.air + AEL_RIDE_MIN*60000;
   var arrive = tsy + AEL_WALK_MIN*60000;
-  var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣<span>行路' + AEL_WALK_MIN + '分鐘 約 ' + hm(arrive) + ' 到</span></div>';
+  var h = '<div class="xfer"><div class="xpt"><div class="xpt-h">青衣<span class="walk">行路' + AEL_WALK_MIN + '分鐘<br>約 ' + hm(arrive) + ' 到巴士站</span></div>';
   h += connHtml(withStatus(connList('TY928', ['68E'], arrive), arrive));
   return h + '</div></div>';
 }
