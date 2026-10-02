@@ -183,10 +183,11 @@ var TABS = [
     { code:'TY929', name:'青衣', routes:[{r:'68E',hint:'元朗公園'}] } ] }
 ];
 
-// 968 轉車點:用接駁站嘅位置,喺 968 路線搵最近嘅落車站
+// 968 轉車點;mins = 由永吉街(CW767)開出計嘅車程,跟九巴 app 嘅預計車程
+// (九巴每站只列最近 3 班,中途係公路冇站,跟實時資料會撞錯前面嗰班車)
 var XFER968 = [
-  { name:'大欖隧道轉車站', near:'YL236', routes:['68E'] },
-  { name:'YOHO MIX',       near:'YL244', routes:['68E','68F'] }
+  { name:'大欖隧道轉車站', near:'YL236', routes:['68E'],       mins:34 },
+  { name:'YOHO MIX',       near:'YL244', routes:['68E','68F'], mins:42 }
 ];
 
 /* ================= 狀態 ================= */
@@ -643,16 +644,11 @@ function withStatus(list, arrive){
 
 function panel968(){
   var h = '<div class="xfer">';
-  var c = r968.ctx;
-  if(!c){ return h + '<div class="xmsg">暫時計唔到轉車，請稍後再試</div></div>'; }
-  if(!r968.map){ return h + '<div class="xmsg">計緊轉車時間...</div></div>'; }
+  var board = sel968.board || sel968.eta;   // 喺永吉街開出嘅時間
   XFER968.forEach(function(x){
-    var tseq = c.targets[x.near];
+    var arrive = board + x.mins*60000;
     h += '<div class="xpt">';
-    if(tseq==null){ h += '<div class="xpt-h">' + x.name + '</div><div class="xmsg">搵唔到 968 喺呢度嘅落車站</div></div>'; return; }
-    if(sel968.seq > tseq){ h += '<div class="xpt-h">' + x.name + '<span>已經過咗</span></div></div>'; return; }
-    var arrive = sel968.seq === tseq ? sel968.eta : chain(sel968.seq, sel968.eta, tseq);
-    if(arrive==null){ h += '<div class="xpt-h">' + x.name + '</div><div class="xmsg">暫時計唔到，車行近啲再試</div></div>'; return; }
+    if(Date.now() > arrive + 60000){ h += '<div class="xpt-h">' + x.name + '<span>已經過咗</span></div></div>'; return; }
     h += '<div class="xpt-h">' + x.name + '<span>968 約 ' + hm(arrive) + ' 到</span></div>';
     h += connHtml(withStatus(connList(x.near, x.routes, arrive), arrive)) + '</div>';
   });
