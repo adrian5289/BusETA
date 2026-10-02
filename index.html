@@ -499,16 +499,28 @@ async function loadMtr(sta){
   }catch(e){ st.error = true; }
 }
 
+// 機場開出 → 青衣到站:按次序逐班配對,每個青衣到站時間只畀一班車用
+// (港鐵每站只列最近幾班,後面嗰班未出現時唔可以借用前一班嘅時間)
+var AEL_MIN_RIDE = 10;
+function tsyFor(airT, air, tsy){
+  var last = -Infinity, res = null;
+  tsy = tsy.slice().sort(function(x,y){ return x-y; });
+  air.slice().sort(function(x,y){ return x-y; }).forEach(function(a){
+    if(a > airT + 1000) return;
+    var t = tsy.filter(function(x){ return x > last && x >= a + AEL_MIN_RIDE*60000 && x <= a + 22*60000; })[0];
+    if(t!=null) last = t;
+    if(Math.abs(a - airT) <= 1000) res = t!=null ? t : null;
+  });
+  return res;   // null = 用 AEL_RIDE_MIN 估計
+}
+
 function trackAEL(){
   if(!selAEL) return;
   var air = (mtr.AIR||{}).times || [], tsy = (mtr.TSY||{}).times || [];
   var a = air.filter(function(t){ return Math.abs(t - selAEL.air) <= 3*60000; })[0];
   if(a!=null){
     selAEL.air = a;
-    var want = a + AEL_RIDE_MIN*60000;
-    var m = tsy.filter(function(t){ return t >= a + 8*60000 && t <= a + 22*60000; })
-      .sort(function(x,y){ return Math.abs(x-want) - Math.abs(y-want); })[0];
-    selAEL.tsy = m!=null ? m : null;
+    selAEL.tsy = tsyFor(a, air, tsy);
   }else{
     var ref = selAEL.tsy || selAEL.air + AEL_RIDE_MIN*60000;
     var m2 = tsy.filter(function(t){ return Math.abs(t - ref) <= 5*60000; })[0];
