@@ -100,7 +100,7 @@
 
   <section class="card">
     <button class="btn" id="run">立即記錄一次</button>
-    <div class="msg" id="runMsg">平時唔使撳,佢每 3 分鐘會自動行。</div>
+    <div class="msg" id="runMsg">平時唔使撳，佢每 3 分鐘會自動行。</div>
   </section>
 
   <div class="foot">每 30 秒自動更新 · <a href="./">返九巴到站</a></div>
@@ -141,19 +141,19 @@ function showStatus(s, home){
   var level = !run ? 'bad' : mins <= CRON_MIN * 2 ? 'ok' : mins <= CRON_MIN * 5 ? 'warn' : 'bad';
   $('dot').className = 'dot ' + level;
   $('state').textContent = level==='ok' ? '✅ 自動記錄緊' : level==='warn' ? '⚠️ 遲咗少少' : '❌ 冇自動行緊';
-  $('stateSub').textContent = run ? '最後一次:' + ago(run.ts) + '(' + hm(run.ts) + ')' : '仲未行過';
+  $('stateSub').textContent = run ? '最後一次：' + ago(run.ts) + '（' + hm(run.ts) + '）' : '仲未行過';
   $('arrivals').textContent = s.arrivals;
   $('days').textContent = s.days;
 
   var failed = run && run.failed && run.failed.length ? run.failed : [];
   var isNew = home && JSON.stringify(home.try || []).indexOf('YL255') >= 0;
   var rows = [
-    ['自動定時', level==='ok' ? '<span class="ok-t">正常(每 ' + CRON_MIN + ' 分鐘)</span>'
+    ['自動定時', level==='ok' ? '<span class="ok-t">正常（每 ' + CRON_MIN + ' 分鐘）</span>'
                : level==='warn' ? '<span class="warn-t">超過 ' + Math.round(mins) + ' 分鐘冇行</span>'
                : '<span class="bad-t">檢查 Cron Triggers</span>'],
     ['上次記錄到站', run ? run.recorded + ' 班' : '–'],
-    ['九巴查詢', failed.length ? '<span class="bad-t">失敗:' + esc(failed.join('、')) + '</span>' : '<span class="ok-t">正常</span>'],
-    ['程式版本', home ? (isNew ? '<span class="ok-t">新版(只記錄 2 個站)</span>' : '<span class="warn-t">舊版,要重新貼上</span>') : '–']
+    ['九巴查詢', failed.length ? '<span class="bad-t">失敗：' + esc(failed.join('、')) + '</span>' : '<span class="ok-t">正常</span>'],
+    ['程式版本', home ? (isNew ? '<span class="ok-t">新版（只記錄 2 個站）</span>' : '<span class="warn-t">舊版，要重新貼上</span>') : '–']
   ];
   $('details').innerHTML = '<h2>詳細</h2>' + rows.map(function(r){
     return '<div class="row"><span class="k">' + r[0] + '</span><span>' + r[1] + '</span></div>';
@@ -167,7 +167,7 @@ function showPredict(results){
       var p = out && out.routes && out.routes[r];
       var times = p && p.slots && p.slots.length
         ? p.slots.map(function(x){ return '<span class="t">' + x.t + '</span>'; }).join('')
-        : '<span class="none">' + (p ? '資料未夠(用咗 ' + p.days + ' 日記錄)' : '載入失敗') + '</span>';
+        : '<span class="none">' + (p ? '資料未夠（用咗 ' + p.days + ' 日記錄）' : '載入失敗') + '</span>';
       return '<div class="route"><span class="rno">' + r + '</span>' + (p && p.dest ? '<span class="dest">往 ' + esc(p.dest) + '</span>' : '') +
              '<div class="times">' + times + '</div></div>';
     }).join('');
@@ -209,13 +209,13 @@ $('run').addEventListener('click', async function(){
   var btn = $('run'); btn.disabled = true; $('runMsg').textContent = '記錄緊...';
   try{
     var j = await getJson('/run');
-    $('runMsg').textContent = '✅ 完成,今次記錄咗 ' + j.recorded + ' 班到站';
+    $('runMsg').textContent = '✅ 完成，今次記錄咗 ' + j.recorded + ' 班到站';
     load();
-  }catch(e){ $('runMsg').textContent = '⚠️ 失敗:' + e.message; }
+  }catch(e){ $('runMsg').textContent = '⚠️ 失敗：' + e.message; }
   btn.disabled = false;
 });
 // 「幾耐之前」每秒更新;資料每 30 秒重新攞
-setInterval(function(){ if(last && last.lastRun) $('stateSub').textContent = '最後一次:' + ago(last.lastRun.ts) + '(' + hm(last.lastRun.ts) + ')'; }, 1000);
+setInterval(function(){ if(last && last.lastRun) $('stateSub').textContent = '最後一次：' + ago(last.lastRun.ts) + '（' + hm(last.lastRun.ts) + '）'; }, 1000);
 setInterval(function(){ if(!document.hidden) load(); }, 30000);
 document.addEventListener('visibilitychange', function(){ if(!document.hidden) load(); });
 load();
