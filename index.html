@@ -145,7 +145,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.11.5';   // 每次改版記得更新
+var VERSION       = 'v2.11.6';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -187,8 +187,8 @@ var TABS = [
 // 968 轉車點;mins = 由永吉街(CW767)開出計嘅車程,跟九巴 app 嘅預計車程
 // (九巴每站只列最近 3 班,中途係公路冇站,跟實時資料會撞錯前面嗰班車)
 var XFER968 = [
-  { name:'大欖隧道轉車站', near:'YL236', routes:['68E'],       mins:33 },
-  { name:'YOHO MIX',       near:'YL244', routes:['68E','68F'], mins:42 }
+  { name:'大欖隧道轉車站', near:'YL236', routes:['68E'],       mins:35 },
+  { name:'YOHO MIX',       near:'YL244', routes:['68E','68F'], mins:45 }
 ];
 
 /* ================= 狀態 ================= */
