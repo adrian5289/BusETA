@@ -93,6 +93,7 @@
   .xpt-h{display:flex;flex-wrap:wrap;gap:2px 8px;justify-content:space-between;font-size:15px;font-weight:600;margin-bottom:4px}
   .xpt-h span{font-weight:400;color:var(--sub);font-size:13px}
   .conn{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;font-variant-numeric:tabular-nums}
+  .conn .wait{font-size:12px;color:var(--sub);margin-left:8px}
   .xmsg{font-size:13px;color:var(--dim);padding:2px 0}
   .foot{text-align:center;font-size:12px;color:var(--dim);padding-top:4px}
   .leave b{font-weight:600}
@@ -623,7 +624,8 @@ function connHtml(list){
   if(!list.length) return '<div class="xmsg">暫時未有之後嘅班次資料</div>';
   var ok = list.some(function(c){ return c.ok; });
   return list.map(function(c){
-    return '<div class="conn"><span><span class="rno tag">' + esc(c.r) + '</span>' + hm(c.t) + '</span>' + c.status + '</div>';
+    return '<div class="conn"><span><span class="rno tag">' + esc(c.r) + '</span>' + hm(c.t) +
+           (c.ok ? '<span class="wait">' + (c.wait < 1 ? '即到' : '等 ' + c.wait + ' 分鐘') + '</span>' : '') + '</span>' + c.status + '</div>';
   }).join('') + (ok ? '' : '<div class="xmsg">之後嘅班次仲未有資料</div>');
 }
 function withStatus(list, arrive){
@@ -631,6 +633,7 @@ function withStatus(list, arrive){
   return list.map(function(c){
     var gap = (c.t - arrive)/60000;
     c.ok = gap >= 0;
+    c.wait = Math.max(0, Math.round(gap));   // 到咗轉車站要等幾耐
     c.status = gap < 0 ? '<span class="red">❌ 趕唔切</span>'
              : gap <= TIGHT_MIN ? '<span class="orange">⚠️ 好趕</span>'
              : '<span class="green">✅ 夠時間</span>';
