@@ -60,6 +60,13 @@
   .times{width:100%;display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
   .t{font-size:14px;font-variant-numeric:tabular-nums;background:var(--accent-soft);border-radius:8px;padding:3px 8px}
   .none{font-size:13px;color:var(--dim);width:100%}
+  button.t{border:0;font:inherit;font-size:14px;color:var(--text);cursor:pointer}
+  button.t[aria-expanded="true"]{background:var(--accent);color:#fff}
+  .hist{width:100%;background:#f4f6fb;border:1px solid var(--accent-soft);border-radius:12px;padding:8px 12px;margin-top:6px}
+  .hist-h{font-size:13px;font-weight:600;color:var(--accent);margin-bottom:4px}
+  .hist .r{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;font-variant-numeric:tabular-nums;border-top:1px solid var(--line)}
+  .hist .r:first-of-type{border-top:0}
+  .hist .miss{color:var(--dim)}
   .btn{width:100%;border:0;border-radius:12px;background:var(--accent);color:#fff;font:inherit;font-size:15px;font-weight:600;padding:12px;cursor:pointer}
   .btn:disabled{opacity:.6}
   .msg{font-size:13px;color:var(--sub);margin-top:8px;min-height:18px}
@@ -67,6 +74,8 @@
   .foot{text-align:center;font-size:12px;color:var(--dim);padding-top:4px}
   .foot a{color:var(--accent)}
   button:focus-visible{outline:2px solid #ffb000;outline-offset:2px}
+  body.embed header,body.embed .foot{display:none}
+  body.embed{padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
 </style>
 </head>
 <body>
@@ -113,7 +122,8 @@ var API = 'https://buseta.adrian5289.workers.dev';
 var CRON_MIN = 3;   // Cloudflare 每 3 分鐘行一次
 var STOPS = [
   { code:'YL292', name:'馬田壆', routes:['68E','68F'] },
-  { code:'YL255', name:'康樂路', routes:['E36','E36S','A36'] }
+  { code:'YL255', name:'康樂路', routes:['E36','A36'] },
+  { code:'YL369', name:'同樂街', routes:['968'] }
 ];
 var HK = 8 * 3600e3;
 var day = (function(){ var d = new Date(Date.now() + HK + 864e5).getUTCDay(); return d===0 ? 'H' : d===6 ? 'S' : 'W'; })();   // 預設睇聽日
@@ -146,14 +156,14 @@ function showStatus(s, home){
   $('days').textContent = s.days;
 
   var failed = run && run.failed && run.failed.length ? run.failed : [];
-  var isNew = home && JSON.stringify(home.try || []).indexOf('YL255') >= 0;
+  var isNew = home && JSON.stringify(home.try || []).indexOf('YL369') >= 0;   // 最新版有同樂街
   var rows = [
     ['自動定時', level==='ok' ? '<span class="ok-t">正常（每 ' + CRON_MIN + ' 分鐘）</span>'
                : level==='warn' ? '<span class="warn-t">超過 ' + Math.round(mins) + ' 分鐘冇行</span>'
                : '<span class="bad-t">檢查 Cron Triggers</span>'],
     ['上次記錄到站', run ? run.recorded + ' 班' : '–'],
     ['九巴查詢', failed.length ? '<span class="bad-t">失敗：' + esc(failed.join('、')) + '</span>' : '<span class="ok-t">正常</span>'],
-    ['程式版本', home ? (isNew ? '<span class="ok-t">新版（只記錄 2 個站）</span>' : '<span class="warn-t">舊版，要重新貼上</span>') : '–']
+    ['程式版本', home ? (isNew ? '<span class="ok-t">最新版</span>' : '<span class="warn-t">舊版，要重新貼上</span>') : '–']
   ];
   $('details').innerHTML = '<h2>詳細</h2>' + rows.map(function(r){
     return '<div class="row"><span class="k">' + r[0] + '</span><span>' + r[1] + '</span></div>';
@@ -161,18 +171,35 @@ function showStatus(s, home){
 }
 
 function showPredict(results){
+  lastResults = results;
   $('predict').innerHTML = STOPS.map(function(s, i){
     var out = results[i];
     return '<div class="stop-name">' + s.name + ' <span class="dest">' + s.code + '</span></div>' + s.routes.map(function(r){
       var p = out && out.routes && out.routes[r];
       var times = p && p.slots && p.slots.length
-        ? p.slots.map(function(x){ return '<span class="t">' + x.t + '</span>'; }).join('')
+        ? p.slots.map(function(x, j){
+            var key = s.code + '|' + r + '|' + j, on = openKey === key;
+            return '<button class="t" data-key="' + key + '" aria-expanded="' + on + '">' + x.t + '</button>' + (on ? histHtml(p, x) : '');
+          }).join('')
         : '<span class="none">' + (p ? '資料未夠（用咗 ' + p.days + ' 日記錄）' : '載入失敗') + '</span>';
       return '<div class="route"><span class="rno">' + r + '</span>' + (p && p.dest ? '<span class="dest">往 ' + esc(p.dest) + '</span>' : '') +
              '<div class="times">' + times + '</div></div>';
     }).join('');
   }).join('');
 }
+
+// 撳一班:睇返過去幾日每日實際幾點到
+var WEEK = ['日','一','二','三','四','五','六'];
+function histHtml(p, x){
+  var dates = (p.dates || []).slice().sort().reverse();
+  return '<div class="hist"><div class="hist-h">' + x.t + ' 呢班：最近 ' + dates.length + ' 日（' + Object.keys(x.seen || {}).length + ' 日有記錄）</div>' +
+    dates.map(function(d){
+      var w = WEEK[new Date(d + 'T00:00:00Z').getUTCDay()], t = x.seen && x.seen[d];
+      return '<div class="r"><span>' + d.slice(5).replace('-', '/') + '（' + w + '）</span>' +
+             (t ? '<span>' + t + '</span>' : '<span class="miss">冇記錄</span>') + '</div>';
+    }).join('') + '</div>';
+}
+var openKey = null, lastResults = [];
 
 function markDay(){
   Array.prototype.forEach.call($('seg').children, function(b){ b.setAttribute('aria-pressed', String(b.dataset.day===day)); });
@@ -201,9 +228,14 @@ async function loadPredict(){
 }
 
 $('refresh').addEventListener('click', load);
+$('predict').addEventListener('click', function(e){
+  var b = e.target.closest('button.t'); if(!b) return;
+  openKey = openKey === b.dataset.key ? null : b.dataset.key;
+  showPredict(lastResults);
+});
 $('seg').addEventListener('click', function(e){
   var b = e.target.closest('button'); if(!b) return;
-  day = b.dataset.day; loadPredict();
+  day = b.dataset.day; openKey = null; loadPredict();
 });
 $('run').addEventListener('click', async function(){
   var btn = $('run'); btn.disabled = true; $('runMsg').textContent = '記錄緊...';
@@ -218,6 +250,7 @@ $('run').addEventListener('click', async function(){
 setInterval(function(){ if(last && last.lastRun) $('stateSub').textContent = '最後一次：' + ago(last.lastRun.ts) + '（' + hm(last.lastRun.ts) + '）'; }, 1000);
 setInterval(function(){ if(!document.hidden) load(); }, 30000);
 document.addEventListener('visibilitychange', function(){ if(!document.hidden) load(); });
+if(/[?&]embed\b/.test(location.search)) document.body.classList.add('embed');   // 嵌入咗九巴到站 app 入面
 load();
 })();
 </script>
