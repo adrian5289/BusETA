@@ -74,6 +74,8 @@
   .foot{text-align:center;font-size:12px;color:var(--dim);padding-top:4px}
   .foot a{color:var(--accent)}
   button:focus-visible{outline:2px solid #ffb000;outline-offset:2px}
+  body.embed header,body.embed .foot{display:none}
+  body.embed{padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
 </style>
 </head>
 <body>
@@ -154,14 +156,14 @@ function showStatus(s, home){
   $('days').textContent = s.days;
 
   var failed = run && run.failed && run.failed.length ? run.failed : [];
-  var isNew = home && JSON.stringify(home.try || []).indexOf('YL255') >= 0;
+  var isNew = home && JSON.stringify(home.try || []).indexOf('YL369') >= 0;   // 最新版有同樂街
   var rows = [
     ['自動定時', level==='ok' ? '<span class="ok-t">正常（每 ' + CRON_MIN + ' 分鐘）</span>'
                : level==='warn' ? '<span class="warn-t">超過 ' + Math.round(mins) + ' 分鐘冇行</span>'
                : '<span class="bad-t">檢查 Cron Triggers</span>'],
     ['上次記錄到站', run ? run.recorded + ' 班' : '–'],
     ['九巴查詢', failed.length ? '<span class="bad-t">失敗：' + esc(failed.join('、')) + '</span>' : '<span class="ok-t">正常</span>'],
-    ['程式版本', home ? (isNew ? '<span class="ok-t">新版（只記錄 2 個站）</span>' : '<span class="warn-t">舊版，要重新貼上</span>') : '–']
+    ['程式版本', home ? (isNew ? '<span class="ok-t">最新版</span>' : '<span class="warn-t">舊版，要重新貼上</span>') : '–']
   ];
   $('details').innerHTML = '<h2>詳細</h2>' + rows.map(function(r){
     return '<div class="row"><span class="k">' + r[0] + '</span><span>' + r[1] + '</span></div>';
@@ -248,6 +250,7 @@ $('run').addEventListener('click', async function(){
 setInterval(function(){ if(last && last.lastRun) $('stateSub').textContent = '最後一次：' + ago(last.lastRun.ts) + '（' + hm(last.lastRun.ts) + '）'; }, 1000);
 setInterval(function(){ if(!document.hidden) load(); }, 30000);
 document.addEventListener('visibilitychange', function(){ if(!document.hidden) load(); });
+if(/[?&]embed\b/.test(location.search)) document.body.classList.add('embed');   // 嵌入咗九巴到站 app 入面
 load();
 })();
 </script>

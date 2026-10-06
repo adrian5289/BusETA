@@ -41,6 +41,14 @@
   .icon-btn.spin{animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){.icon-btn.spin{animation:none;opacity:.6}}
+  .modes{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:rgba(255,255,255,.14);border-radius:12px;padding:3px;margin-bottom:12px}
+  .modes button{border:0;border-radius:9px;padding:7px 4px;background:none;color:rgba(255,255,255,.85);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+  .modes button[aria-pressed="true"]{background:#fff;color:var(--accent)}
+  .modes button:focus-visible{outline:2px solid #ffb000;outline-offset:2px}
+  body.log-mode .tabs,body.log-mode #ptr,body.log-mode #content,body.log-mode .foot{display:none}
+  body.log-mode main{padding:0}
+  #logframe{display:none;width:100%;border:0;background:var(--bg)}
+  body.log-mode #logframe{display:block}
   .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
   .tab{
     border:0;border-radius:12px;padding:9px 4px;background:rgba(255,255,255,.12);color:rgba(255,255,255,.85);
@@ -124,8 +132,11 @@
 <body>
 <header>
   <div class="wrap">
+    <div class="modes" id="modes">
+      <button data-mode="eta">到站時間</button><button data-mode="log">記錄器</button>
+    </div>
     <div class="top">
-      <h1>九巴到站時間</h1>
+      <h1 id="title">九巴到站時間</h1>
       <div class="top-r">
         <span class="clock" id="clock">--:--</span>
         <button class="icon-btn" id="refresh" aria-label="重新整理">↻</button>
@@ -138,6 +149,7 @@
 <main class="wrap">
   <div id="content"></div>
   <div class="foot">數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
+  <iframe id="logframe" title="記錄器狀態"></iframe>
 </main>
 
 <script>
@@ -543,6 +555,7 @@ function neededFor(tab){
 }
 
 async function refresh(){
+  if(mode === 'log'){ reloadLog(); return; }
   if(refreshing){ again = true; return; }
   refreshing = true; again = false;
   document.getElementById('refresh').classList.add('spin');
@@ -1049,7 +1062,26 @@ document.getElementById('ver').addEventListener('click', function(){
   if(DEMO) setDemo(false);
   else if(confirm('開啟預覽模式？\n會用模擬班次,方便測試出門提醒。')) setDemo(true);
 });
-render(); refresh(); startTimers();
+/* ================= 到站時間 / 記錄器 切換 ================= */
+// 記錄器係另一個網頁(logger.html),用 iframe 嵌入;切走時清空,唔會喺背景讀資料
+var mode = load('mode') === 'log' ? 'log' : 'eta';
+var logframe = document.getElementById('logframe');
+function sizeLog(){ logframe.style.height = Math.max(300, window.innerHeight - document.querySelector('header').offsetHeight) + 'px'; }
+function reloadLog(){ logframe.src = 'logger.html?embed=1&t=' + Date.now(); }
+function setMode(m){
+  mode = m; save('mode', m);
+  document.body.classList.toggle('log-mode', m === 'log');
+  document.getElementById('title').textContent = m === 'log' ? '記錄器狀態' : '九巴到站時間';
+  Array.prototype.forEach.call(document.getElementById('modes').children, function(b){ b.setAttribute('aria-pressed', String(b.dataset.mode === m)); });
+  if(m === 'log'){ sizeLog(); if((logframe.getAttribute('src') || '').indexOf('logger.html') < 0) reloadLog(); }
+  else { logframe.removeAttribute('src'); render(); refresh(); }
+}
+document.getElementById('modes').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if(b && b.dataset.mode !== mode) setMode(b.dataset.mode);
+});
+window.addEventListener('resize', function(){ if(mode === 'log') sizeLog(); });
+
+render(); setMode(mode); startTimers();
 })();
 </script>
 </body>
