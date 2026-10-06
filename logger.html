@@ -60,6 +60,13 @@
   .times{width:100%;display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
   .t{font-size:14px;font-variant-numeric:tabular-nums;background:var(--accent-soft);border-radius:8px;padding:3px 8px}
   .none{font-size:13px;color:var(--dim);width:100%}
+  button.t{border:0;font:inherit;font-size:14px;color:var(--text);cursor:pointer}
+  button.t[aria-expanded="true"]{background:var(--accent);color:#fff}
+  .hist{width:100%;background:#f4f6fb;border:1px solid var(--accent-soft);border-radius:12px;padding:8px 12px;margin-top:6px}
+  .hist-h{font-size:13px;font-weight:600;color:var(--accent);margin-bottom:4px}
+  .hist .r{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;font-variant-numeric:tabular-nums;border-top:1px solid var(--line)}
+  .hist .r:first-of-type{border-top:0}
+  .hist .miss{color:var(--dim)}
   .btn{width:100%;border:0;border-radius:12px;background:var(--accent);color:#fff;font:inherit;font-size:15px;font-weight:600;padding:12px;cursor:pointer}
   .btn:disabled{opacity:.6}
   .msg{font-size:13px;color:var(--sub);margin-top:8px;min-height:18px}
@@ -161,18 +168,35 @@ function showStatus(s, home){
 }
 
 function showPredict(results){
+  lastResults = results;
   $('predict').innerHTML = STOPS.map(function(s, i){
     var out = results[i];
     return '<div class="stop-name">' + s.name + ' <span class="dest">' + s.code + '</span></div>' + s.routes.map(function(r){
       var p = out && out.routes && out.routes[r];
       var times = p && p.slots && p.slots.length
-        ? p.slots.map(function(x){ return '<span class="t">' + x.t + '</span>'; }).join('')
+        ? p.slots.map(function(x, j){
+            var key = s.code + '|' + r + '|' + j, on = openKey === key;
+            return '<button class="t" data-key="' + key + '" aria-expanded="' + on + '">' + x.t + '</button>' + (on ? histHtml(p, x) : '');
+          }).join('')
         : '<span class="none">' + (p ? '資料未夠（用咗 ' + p.days + ' 日記錄）' : '載入失敗') + '</span>';
       return '<div class="route"><span class="rno">' + r + '</span>' + (p && p.dest ? '<span class="dest">往 ' + esc(p.dest) + '</span>' : '') +
              '<div class="times">' + times + '</div></div>';
     }).join('');
   }).join('');
 }
+
+// 撳一班:睇返過去幾日每日實際幾點到
+var WEEK = ['日','一','二','三','四','五','六'];
+function histHtml(p, x){
+  var dates = (p.dates || []).slice().sort().reverse();
+  return '<div class="hist"><div class="hist-h">' + x.t + ' 呢班：最近 ' + dates.length + ' 日（' + x.n + ' 日有記錄）</div>' +
+    dates.map(function(d){
+      var w = WEEK[new Date(d + 'T00:00:00Z').getUTCDay()], t = x.seen && x.seen[d];
+      return '<div class="r"><span>' + d.slice(5).replace('-', '/') + '（' + w + '）</span>' +
+             (t ? '<span>' + t + '</span>' : '<span class="miss">冇記錄</span>') + '</div>';
+    }).join('') + '</div>';
+}
+var openKey = null, lastResults = [];
 
 function markDay(){
   Array.prototype.forEach.call($('seg').children, function(b){ b.setAttribute('aria-pressed', String(b.dataset.day===day)); });
@@ -201,9 +225,14 @@ async function loadPredict(){
 }
 
 $('refresh').addEventListener('click', load);
+$('predict').addEventListener('click', function(e){
+  var b = e.target.closest('button.t'); if(!b) return;
+  openKey = openKey === b.dataset.key ? null : b.dataset.key;
+  showPredict(lastResults);
+});
 $('seg').addEventListener('click', function(e){
   var b = e.target.closest('button'); if(!b) return;
-  day = b.dataset.day; loadPredict();
+  day = b.dataset.day; openKey = null; loadPredict();
 });
 $('run').addEventListener('click', async function(){
   var btn = $('run'); btn.disabled = true; $('runMsg').textContent = '記錄緊...';
