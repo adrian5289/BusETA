@@ -18,8 +18,8 @@ const HINT = {
 const MATCH_MS = 4 * 60e3;   // 前後兩次見到同一架車,ETA 相差唔超過 4 分鐘
 const DUE_MS = 2 * 60e3;     // 消失前 ETA 喺 2 分鐘內,當佢已經到站
 const KEEP_DAYS = 60;
-const LOOK_DAYS = 60;       // 最多向前搵幾多日
-const USE_DAYS = 7;         // 每類日子(平日 / 六 / 日)用最近幾多日嘅記錄
+const LOOK_DAYS = 28;       // 估計用過去幾多日嘅記錄
+const SHOW_DAYS = 7;        // 撳入一班車,顯示最近幾多個同類日子
 const HK = 8 * 3600e3;
 
 const SCHEMA = [
@@ -123,12 +123,10 @@ async function predict(db, stop, route, day, now, wantDir) {
     for (const r of all) if (!hint || destMatch(r.dest, hint)) count[r.dir] = (count[r.dir] || 0) + 1;
     dir = Object.keys(count).sort((a, b) => count[b] - count[a])[0] || null;
   }
-  let rows = dir ? all.filter(r => r.dir === dir) : [];
+  const rows = dir ? all.filter(r => r.dir === dir) : [];
   const dest = rows.length ? rows[rows.length - 1].dest : '';
-  // 只用最近 USE_DAYS 個同類日子
-  const dates = [...new Set(rows.map(r => r.date))].sort().reverse().slice(0, USE_DAYS);
-  rows = rows.filter(r => dates.includes(r.date));
-  const days = dates.length;
+  const days = new Set(rows.map(r => r.date)).size;
+  const dates = [...new Set(rows.map(r => r.date))].sort().reverse().slice(0, SHOW_DAYS);   // 只係顯示用
   const pts = rows.map(r => ({ m: ((r.arr + HK) % 864e5) / 60e3, date: r.date })).sort((a, b) => a.m - b.m);
 
   const clusters = [];
@@ -145,7 +143,7 @@ async function predict(db, stop, route, day, now, wantDir) {
     const ms = Object.values(byDate).sort((a, b) => a - b);
     if (ms.length < need) continue;
     slots.push({ t: hhmm(ms[Math.floor(ms.length / 2)]), min: hhmm(ms[0]), max: hhmm(ms[ms.length - 1]), n: ms.length,
-      seen: Object.fromEntries(Object.entries(byDate).map(([d, m]) => [d, hhmm(m)])) });   // 每日實際到站時間
+      seen: Object.fromEntries(Object.entries(byDate).filter(([d]) => dates.includes(d)).map(([d, m]) => [d, hhmm(m)])) });   // 最近幾日實際到站時間
   }
   return { stop, route, dir, dest, day, days, dates, slots };
 }

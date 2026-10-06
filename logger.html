@@ -189,7 +189,7 @@ function showPredict(results){
 var WEEK = ['日','一','二','三','四','五','六'];
 function histHtml(p, x){
   var dates = (p.dates || []).slice().sort().reverse();
-  return '<div class="hist"><div class="hist-h">' + x.t + ' 呢班：最近 ' + dates.length + ' 日（' + x.n + ' 日有記錄）</div>' +
+  return '<div class="hist"><div class="hist-h">' + x.t + ' 呢班：最近 ' + dates.length + ' 日（' + Object.keys(x.seen || {}).length + ' 日有記錄）</div>' +
     dates.map(function(d){
       var w = WEEK[new Date(d + 'T00:00:00Z').getUTCDay()], t = x.seen && x.seen[d];
       return '<div class="r"><span>' + d.slice(5).replace('-', '/') + '（' + w + '）</span>' +
