@@ -1,18 +1,20 @@
 // BusETA 記錄器:每幾分鐘記低巴士大約幾點到站,再估計聽日班次
 const KMB = 'https://data.etabus.gov.hk/v1/transport/kmb/';
 
-// 要記錄嘅站(九巴站 ID)同路線
+// 要記錄嘅站同路線;STOPS 未有 ID 嘅站,會用九巴站點清單按站牌編號搵(每星期更新一次)
 const STOPS = { YL292: 'C187E3771B7032EC', YL255: '8BE58FAD7E9C94C7' };
 const WATCH = {
   YL292: ['68E', '68F'],            // 馬田壆
-  YL255: ['E36', 'A36']            // 康樂路
+  YL255: ['E36', 'A36'],            // 康樂路
+  YL369: ['968']                    // 同樂街
 };
 
 // 每條線要估計嘅方向(目的地,啱其中一個就得);九巴會同時回傳兩個方向
 const AIRPORT = ['機場', '國泰城'];
 const HINT = {
   YL292: { '68E': ['青衣'], '68F': ['元朗公園'] },
-  YL255: { E36: AIRPORT, A36: AIRPORT }
+  YL255: { E36: AIRPORT, A36: AIRPORT },
+  YL369: { '968': ['銅鑼灣'] }
 };
 
 const MATCH_MS = 4 * 60e3;   // 前後兩次見到同一架車,ETA 相差唔超過 4 分鐘
@@ -61,15 +63,36 @@ async function ensureSchema(db) {
   await db.batch(SCHEMA.map(s => db.prepare(s)));
 }
 
+async function resolveStops(db, now) {
+  const missing = Object.keys(WATCH).filter(c => !STOPS[c]);
+  if (!missing.length) return {};
+  const cached = await getState(db, 'stops');
+  if (cached && now - cached.ts < 7 * 864e5 && missing.every(c => cached.map[c])) return cached.map;
+  try {
+    const json = await getJson(KMB + 'stop');
+    const map = {};
+    for (const s of json.data || []) {
+      const m = /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_tc || '') || /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_en || '');
+      if (m && missing.includes(m[1]) && !map[m[1]]) map[m[1]] = s.stop;
+    }
+    await setState(db, 'stops', { ts: now, map }).run();
+    return map;
+  } catch (e) {
+    return cached ? cached.map : {};
+  }
+}
+
 async function collect(env) {
   const db = env.DB;
   await ensureSchema(db);
   const now = Date.now();
   const pending = (await getState(db, 'pending')) || [];
+  const found = await resolveStops(db, now);
 
   const fresh = [], failed = new Set(), seen = new Set();
   await Promise.all(Object.keys(WATCH).map(async code => {
-    const id = STOPS[code];
+    const id = STOPS[code] || found[code];
+    if (!id) { failed.add(code); return; }
     try {
       const json = await getJson(KMB + 'stop-eta/' + id);
       for (const d of json.data || []) {
@@ -182,7 +205,7 @@ export default {
         const c = await db.prepare('SELECT COUNT(*) AS n, COUNT(DISTINCT date) AS d FROM arrivals').first();
         return json({ arrivals: c.n, days: c.d, lastRun: await getState(db, 'lastRun') });
       }
-      return json({ ok: true, name: 'BusETA 記錄器', try: ['/status', '/run', '/predict?stop=YL292&route=68E,68F', '/predict?stop=YL255&route=E36,A36'] });
+      return json({ ok: true, name: 'BusETA 記錄器', try: ['/status', '/run', '/predict?stop=YL292&route=68E,68F', '/predict?stop=YL255&route=E36,A36', '/predict?stop=YL369&route=968'] });
     } catch (e) {
       return json({ error: String(e && e.message || e) }, 500);
     }
