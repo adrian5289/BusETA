@@ -120,7 +120,7 @@ var API = 'https://buseta.adrian5289.workers.dev';
 var CRON_MIN = 3;   // Cloudflare 每 3 分鐘行一次
 var STOPS = [
   { code:'YL292', name:'馬田壆', routes:['68E','68F'] },
-  { code:'YL255', name:'康樂路', routes:['E36','E36S','A36'] }
+  { code:'YL255', name:'康樂路', routes:['E36','A36'] }
 ];
 var HK = 8 * 3600e3;
 var day = (function(){ var d = new Date(Date.now() + HK + 864e5).getUTCDay(); return d===0 ? 'H' : d===6 ? 'S' : 'W'; })();   // 預設睇聽日
