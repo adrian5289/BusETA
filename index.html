@@ -41,7 +41,8 @@
   .icon-btn.spin{animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){.icon-btn.spin{animation:none;opacity:.6}}
-  .modes{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:rgba(255,255,255,.14);border-radius:12px;padding:3px;margin-bottom:12px}
+  .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .modes{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:4px;background:rgba(255,255,255,.14);border-radius:12px;padding:3px}
   .modes button{border:0;border-radius:9px;padding:7px 4px;background:none;color:rgba(255,255,255,.85);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
   .modes button[aria-pressed="true"]{background:#fff;color:var(--accent)}
   .modes button:focus-visible{outline:2px solid #ffb000;outline-offset:2px}
@@ -132,11 +133,11 @@
 <body>
 <header>
   <div class="wrap">
-    <div class="modes" id="modes">
-      <button data-mode="eta">到站時間</button><button data-mode="log">記錄器</button>
-    </div>
+    <h1 class="sr-only" id="title">九巴到站時間</h1>
     <div class="top">
-      <h1 id="title">九巴到站時間</h1>
+      <div class="modes" id="modes">
+        <button data-mode="eta">到站時間</button><button data-mode="log">記錄器</button>
+      </div>
       <div class="top-r">
         <span class="clock" id="clock">--:--</span>
         <button class="icon-btn" id="refresh" aria-label="重新整理">↻</button>
