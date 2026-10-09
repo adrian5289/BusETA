@@ -158,7 +158,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.13.0';   // 每次改版記得更新
+var VERSION       = 'v2.13.1';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -408,7 +408,9 @@ function track968(){
 }
 
 /* ================= 968 到達時間(Sephora:去怡和大廈) ================= */
-var ARRIVE = { route:'968', name:'怡和大廈', match:/怡和大廈/ };
+// mins = 由上車站去怡和大廈嘅車程,跟九巴 app(同樂街 47、YOHO II 43)再加 3 分鐘預留
+// (九巴每站只列最近 3 班,中途係長途公路,跟實時資料會撞錯前面嗰班車)
+var ARRIVE = { route:'968', name:'怡和大廈', match:/怡和大廈/, mins:{ YL369:50, YL392:46 } };
 var arr = { ctx:null, map:null, failed:false };
 var selArr = load('selArr');   // {code, t}
 
@@ -490,6 +492,7 @@ function segmentTravel(from, to, map){
 
 function panelArrive(code, t){
   var h = '<div class="xfer"><div class="xpt">', c = arr.ctx;
+  if(ARRIVE.mins[code]) return h + '<div class="xpt-h">' + ARRIVE.name + '<span>' + ARRIVE.route + ' 約 ' + hm(t + ARRIVE.mins[code]*60000) + ' 到</span></div></div></div>';
   var msg = function(m){ return h + '<div class="xpt-h">' + ARRIVE.name + '</div><div class="xmsg">' + m + '</div></div></div>'; };
   if(!c) return msg(arr.failed ? '暫時計唔到,請稍後再試' : '計緊到達時間...');
   if(c.targetSeq==null) return msg(ARRIVE.route + ' 路線搵唔到' + ARRIVE.name + '站');
@@ -565,7 +568,7 @@ async function refresh(){
   var missing = need.codes.some(function(c){ return !KNOWN[c]; });
   if(missing || need.r968) await ensureStops();
   if(tab.id==='sephb') await ensure968Ctx();
-  var needArr = selArr && tab.cards.some(function(c){ return c.arrive; });
+  var needArr = selArr && !ARRIVE.mins[selArr.code] && tab.cards.some(function(c){ return c.arrive; });
   if(needArr){ await ensureStops(); await ensureArriveCtx(); }
   var jobs = need.codes.map(loadEta);
   if(need.ael){ jobs.push(loadMtr('AIR')); jobs.push(loadMtr('TSY')); }
