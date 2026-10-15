@@ -107,6 +107,7 @@
   .conn .wait{font-size:12px;color:var(--sub);margin-left:8px}
   .xmsg{font-size:13px;color:var(--dim);padding:2px 0}
   .foot{text-align:center;font-size:12px;color:var(--dim);padding-top:4px}
+  .sc-link{border:0;background:var(--card);color:var(--accent);border-radius:999px;font:inherit;font-size:13px;padding:7px 14px;margin-bottom:10px;cursor:pointer;box-shadow:0 2px 10px rgba(52,89,154,.08)}
   .leave b{font-weight:600}
   .rno.tag{font-size:12px;padding:0 5px;border-width:1.2px;border-radius:6px;margin-right:7px;vertical-align:2px}
   .bell{font-size:12px;color:var(--accent);margin-left:6px}
@@ -150,7 +151,7 @@
 <div id="ptr"></div>
 <main class="wrap">
   <div id="content"></div>
-  <div class="foot">數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
+  <div class="foot"><button class="sc-link" id="scset"></button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
   <iframe id="logframe" title="記錄器狀態"></iframe>
 </main>
 
@@ -159,7 +160,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.13.4';   // 每次改版記得更新
+var VERSION       = 'v2.14.0';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -858,9 +859,12 @@ function onContent(e){
     clearReminder();
     reminder = { code:code, route:route, t:t, buf:card ? card.buffer : 0, name:card ? card.name : '', fired:false, push:PUSH_API ? 'pending' : '' };
     save('reminder', reminder);
-    if(PUSH_API) setupPush(reminder);
-    else try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
-    render(); return;
+    var r = reminder;
+    var done = PUSH_API ? setupPush(r) : Promise.resolve();
+    if(!PUSH_API) try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
+    render();
+    done.then(function(){ if(reminder === r) runShortcut(r.t - r.buf*60000, '出門：' + r.route + ' ' + hm(r.t) + ' 到站' + (r.name ? '（' + r.name + '）' : '')); });
+    return;
   }
   if(row.dataset.sel==='arr'){
     var on = selArr && selArr.code===row.dataset.code && Math.abs(t - selArr.t) <= 90000;
@@ -898,6 +902,24 @@ document.getElementById('refresh').addEventListener('click', refresh);
 /* ================= 排程(切走 app 就暫停) ================= */
 function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); checkShift(); }
 
+/* ================= iPhone 捷徑鬧鐘 ================= */
+// 開咗之後,設定提醒(返工更 / 出門)時順便行「九巴鬧鐘」捷徑,喺時鐘 app 整一個真正鬧鐘
+// 傳畀捷徑嘅文字:「2026-10-16 09:30|B 更 11:00 返工」
+var SC_NAME = '九巴鬧鐘';
+var scOn = load('scAlarm') === true;
+function scLabel(){ document.getElementById('scset').textContent = '⏰ 捷徑鬧鐘：' + (scOn ? '開' : '關'); }
+function runShortcut(at, label){
+  if(!scOn || at < Date.now()) return;
+  var d = new Date(at), p = function(n){ return String(n).padStart(2, '0'); };
+  var text = d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + '|' + label;
+  location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent(SC_NAME) + '&input=text&text=' + encodeURIComponent(text);
+}
+document.getElementById('scset').addEventListener('click', function(){
+  if(!scOn && !confirm('開啟捷徑鬧鐘？\n設定提醒時會自動打開「' + SC_NAME + '」捷徑，喺時鐘 app 整一個鬧鐘。\n要先喺「捷徑」app 建立呢個捷徑。')) return;
+  scOn = !scOn; save('scAlarm', scOn ? true : null); scLabel();
+});
+scLabel();
+
 /* ================= 返工更出門提示 ================= */
 function shiftNotifyAt(start){
   var p = start.split(':'), d = new Date();
@@ -930,9 +952,11 @@ function setShift(id){
   clearShift();
   shiftAlarm = { id:s.id, start:s.start, at:shiftNotifyAt(s.start), fired:false, push:PUSH_API ? 'pending' : '' };
   save('shiftAlarm', shiftAlarm); shiftPicker = false;
-  if(PUSH_API) setupShiftPush(shiftAlarm);
-  else try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
+  var a = shiftAlarm;
+  var done = PUSH_API ? setupShiftPush(a) : Promise.resolve();
+  if(!PUSH_API) try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
   render();
+  done.then(function(){ if(shiftAlarm === a) runShortcut(a.at, a.id + ' 更 ' + a.start + ' 返工'); });
 }
 async function setupShiftPush(a){
   try{
