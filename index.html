@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="九巴到站" />
+<meta name="apple-mobile-web-app-title" content="ETA" />
 
 <style>
   :root{
@@ -95,6 +95,16 @@
   .eta-row.est{opacity:.6}
   .eta-row.est .arr small{font-style:normal}
   .none.rmk-only{color:var(--orange)}
+  .search{margin-bottom:14px}
+  .search input{width:100%;-webkit-appearance:none;appearance:none;border:0;border-radius:14px;background:var(--card);color:var(--text);font:inherit;font-size:16px;padding:11px 14px;box-shadow:0 2px 10px rgba(52,89,154,.08)}
+  .search input:focus{outline:2px solid var(--accent-soft)}
+  .sres-h{font-size:13px;color:var(--sub);margin:10px 4px 8px}
+  .sres-h b{color:var(--text)}
+  .srow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:6px 0;font-variant-numeric:tabular-nums}
+  .srow .st{font-size:16px}
+  .srow .sx{font-size:13px;color:var(--sub);text-align:right}
+  .srow.near .st{font-weight:700;color:var(--accent)}
+  body.log-mode .search{display:none}
   .warn{font-size:13px;color:var(--orange);background:#fff4e5;padding:9px 11px;border-radius:10px;margin-bottom:10px}
   .err{font-size:13px;color:var(--red);background:#fdecee;padding:9px 11px;border-radius:10px}
   .upd{font-size:12px;color:var(--dim);text-align:right;margin-top:6px}
@@ -111,7 +121,6 @@
   .conn .wait{font-size:12px;color:var(--sub);margin-left:8px}
   .xmsg{font-size:13px;color:var(--dim);padding:2px 0}
   .foot{text-align:center;font-size:12px;color:var(--dim);padding-top:4px}
-  .sc-link{border:0;background:var(--card);color:var(--accent);border-radius:999px;font:inherit;font-size:13px;padding:7px 14px;margin-bottom:10px;cursor:pointer;box-shadow:0 2px 10px rgba(52,89,154,.08)}
   .leave b{font-weight:600}
   .rno.tag{font-size:12px;padding:0 5px;border-width:1.2px;border-radius:6px;margin-right:7px;vertical-align:2px}
   .bell{font-size:12px;color:var(--accent);margin-left:6px}
@@ -159,8 +168,9 @@
 </header>
 <div id="ptr"></div>
 <main class="wrap">
+  <div class="search"><input id="q" type="search" inputmode="numeric" enterkeyhint="search" autocomplete="off" placeholder="🔍 搜聽日班次，例如打 1700" aria-label="搜尋聽日班次"><div id="sres"></div></div>
   <div id="content"></div>
-  <div class="foot"><button class="sc-link" id="scset"></button> <button class="bark-link" id="barkset"></button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
+  <div class="foot"><button class="bark-link" id="barkset"></button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
   <div id="modal"></div>
   <iframe id="logframe" title="記錄器狀態"></iframe>
 </main>
@@ -170,7 +180,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.15.0';   // 每次改版記得更新
+var VERSION       = 'v2.16.0';   // 每次改版記得更新
 var LOG_API       = 'https://buseta.adrian5289.workers.dev';   // 巴士到站記錄器(估計班次用)
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
@@ -277,8 +287,19 @@ function demoData(url){
     d['AEL-' + a[1]] = { DOWN: offs.map(function(o){ return { dest:'HOK', time:hkStr(DEMO_BASE + o*60000) }; }) };
     return { data:d };
   }
+  var pq = /\/predict\?stop=(\w+)&route=([\w,]+)/.exec(url);
+  if(pq){
+    var routes = {};
+    pq[2].split(',').forEach(function(r, i){
+      var slots = [];
+      for(var t = 330 + i*6; t < 1440; t += 15) slots.push({ t:hhmm(t + 1), min:hhmm(t), n:5 });
+      routes[r] = { route:r, day:'W', days:5, slots:slots };
+    });
+    return { day:'W', routes:routes };
+  }
   return null;
 }
+function hhmm(min){ min = ((Math.round(min) % 1440) + 1440) % 1440; return ('0' + Math.floor(min/60)).slice(-2) + ':' + ('0' + min%60).slice(-2); }
 function setDemo(on){ save('demo', on ? true : null); location.href = location.pathname + (on ? '?demo' : ''); }
 
 async function fetchJson(url){
@@ -750,7 +771,8 @@ function mergeGroups(groups){
 
 /* ================= 預計班次(按記錄器過去記錄) ================= */
 // 有記錄嘅站:實時班次以外,補返由而家起計最少 1 個鐘嘅估計班次
-var LOGGED = { YL292:['68E','68F'], YL255:['E36','A36'], YL369:['968'] };
+var LOGGED = { YL292:['68E','68F'], YL255:['E36','A36'], YL369:['968'], YL392:['968'],
+               YL244:['68E','68F'], YL242:['68E','68F'], CW767:['968'], YL236:['68E'], TY928:['68E'] };
 var EST_WINDOW = 60;          // 分鐘
 var pred = {};                // code -> {date, routes}
 function hkDateStr(ms){ return new Date(ms + 8*3600e3).toISOString().slice(0, 10); }
@@ -794,6 +816,79 @@ function estHtml(card, list, showTag){
            '</div><div class="mins">' + left + '<small>分鐘</small></div></div>';
   }).join('');
 }
+
+/* ================= 搜尋聽日班次 ================= */
+// 打一個時間(例如 1700),顯示呢頁每個站聽日嗰個時間前 5 班同後 5 班(按記錄器過去記錄)
+var SEARCH_N = 5;
+var predT = {}, predTLoading = {};   // code -> {date, day, routes}:聽日嘅估計
+var qInput = document.getElementById('q');
+function loadPredT(code){
+  var today = hkDateStr(Date.now());
+  if(predT[code] && predT[code].date === today) return Promise.resolve();
+  var cached = load('predT:' + code);
+  if(cached && cached.date === today){ predT[code] = cached; return Promise.resolve(); }
+  if(predTLoading[code]) return predTLoading[code];
+  return predTLoading[code] = fetchJson(LOG_API + '/predict?stop=' + code + '&route=' + LOGGED[code].join(',') + '&day=tomorrow').then(function(j){
+    predT[code] = { date:today, day:j.day, routes:j.routes || {} };
+    if(!DEMO) save('predT:' + code, predT[code]);   // 一日只攞一次
+  }).catch(function(){ predT[code] = { date:today, failed:true }; }).then(function(){ delete predTLoading[code]; });
+}
+function parseQ(v){
+  var d = String(v || '').replace(/\D/g, '');
+  if(!d) return null;
+  if(d.length > 4) return -1;
+  var h = d.length <= 2 ? +d : +d.slice(0, -2), m = d.length <= 2 ? 0 : +d.slice(-2);
+  return h > 23 || m > 59 ? -1 : h*60 + m;
+}
+function toMin(s){ var p = String(s).split(':'); return +p[0]*60 + +p[1]; }
+var DAY_NAME = { W:'平日', S:'星期六', H:'星期日／假期' };
+function searchCard(card, q){
+  var h = '<section class="stop"><div class="stop-h"><div><div class="stop-name">' + esc(card.name) + '</div>' +
+          '<div class="stop-code">' + esc(card.code || card.sub) + '</div></div>' +
+          (card.buffer ? '<span class="buffer">預 ' + card.buffer + ' 分鐘出門</span>' : '') + '</div>';
+  if(card.kind === 'ael') return h + '<div class="none">機場快綫冇班次記錄</div></section>';
+  var routes = (LOGGED[card.code] || []).filter(function(r){ return card.routes.some(function(x){ return x.r === r; }); });
+  var p = predT[card.code];
+  if(!routes.length) return h + '<div class="none">呢個站冇記錄</div></section>';
+  if(!p) return h + '<div class="none">載入中...</div></section>';
+  if(p.failed) return h + '<div class="err">⚠️ 連唔到記錄器</div></section>';
+  var all = [];
+  routes.forEach(function(r){
+    var rp = p.routes[r];
+    (rp && rp.slots || []).forEach(function(sl){ all.push({ m:toMin(sl.min || sl.t), route:r }); });
+  });
+  if(!all.length) return h + '<div class="none">記錄未夠，要記錄多幾日先估到</div></section>';
+  all.sort(function(a, b){ return a.m - b.m; });
+  var before = all.filter(function(x){ return x.m < q; }).slice(-SEARCH_N);
+  var after = all.filter(function(x){ return x.m >= q; }).slice(0, SEARCH_N);
+  var tag = routes.length > 1;
+  var row = function(x, near){
+    var extra = card.buffer ? hhmm(x.m - card.buffer) + ' 前出門'
+              : card.arrive && ARRIVE.mins[card.code] ? '約 ' + hhmm(x.m + ARRIVE.mins[card.code]) + ' 到' + ARRIVE.name
+              : card.xfer === '968' ? XFER968.map(function(z){ return z.name.replace('轉車站', '') + ' ' + hhmm(x.m + z.mins); }).join(' · ') : '';
+    return '<div class="srow' + (near ? ' near' : '') + '"><span class="st">' + (tag ? '<span class="rno tag">' + esc(x.route) + '</span>' : '') +
+           '約 ' + hhmm(x.m) + '</span><span class="sx">' + extra + '</span></div>';
+  };
+  h += before.map(function(x){ return row(x, false); }).join('') +
+       '<div class="est-h">' + hhmm(q) + '</div>' +
+       (after.length ? after.map(function(x, i){ return row(x, i === 0); }).join('') : '<div class="none">之後冇車</div>');
+  return h + '</section>';
+}
+function renderSearch(){
+  var box = document.getElementById('sres');
+  var q = parseQ(qInput.value);
+  if(q == null){ box.innerHTML = ''; document.getElementById('content').style.display = ''; return; }
+  document.getElementById('content').style.display = 'none';   // 搜尋時收起實時班次
+  if(q < 0){ box.innerHTML = '<div class="sres-h">時間唔啱，例如打 1700 或者 930</div>'; return; }
+  var cards = tabById(active).cards;
+  var missing = cards.filter(function(c){ return LOGGED[c.code] && !predT[c.code]; });
+  missing.forEach(function(c){ loadPredT(c.code).then(renderSearch); });
+  var day = cards.map(function(c){ return predT[c.code] && predT[c.code].day; }).filter(Boolean)[0];
+  box.innerHTML = '<div class="sres-h">聽日' + (day ? '（' + DAY_NAME[day] + '）' : '') + ' <b>' + hhmm(q) + '</b> 前後各 ' + SEARCH_N + ' 班 · 按過去記錄估計</div>' +
+    cards.map(function(c){ return searchCard(c, q); }).join('');
+}
+qInput.addEventListener('input', renderSearch);
+qInput.addEventListener('keydown', function(e){ if(e.key === 'Enter') qInput.blur(); });
 
 function kmbCard(card){
   var st = eta[card.code] || { data:[] };
@@ -884,6 +979,7 @@ function render(){
   document.getElementById('content').innerHTML = demo + alarm + tabById(active).cards.map(function(c){
     return c.kind==='ael' ? aelCard(c) : kmbCard(c);
   }).join('') + (shiftPicker ? pickerHtml() : '');
+  renderSearch();
 }
 
 /* ================= 操作 ================= */
@@ -961,23 +1057,6 @@ document.getElementById('refresh').addEventListener('click', refresh);
 /* ================= 排程(切走 app 就暫停) ================= */
 function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); checkShift(); }
 
-/* ================= iPhone 捷徑鬧鐘 ================= */
-// 開咗之後,揀返工更時順便打開對應嘅捷徑(例如「11:15鬧鐘」),喺時鐘 app 整一個鬧鐘
-// 鬧鐘時間 = 出門時間 - SC_EARLY 分鐘;每個時間要自己喺「捷徑」app 建立一個捷徑
-var SC_EARLY = 30;
-var scOn = load('scAlarm') === true;
-function scLabel(){ document.getElementById('scset').textContent = '⏰ 捷徑鬧鐘：' + (scOn ? '開' : '關'); }
-function scName(at){ return hm(at - SC_EARLY*60000) + '鬧鐘'; }   // 例如 11:15鬧鐘
-function runShortcut(name){
-  if(scOn) location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent(name);
-}
-document.getElementById('scset').addEventListener('click', function(){
-  if(!scOn && !confirm('開啟捷徑鬧鐘？\n揀返工更時會自動打開對應嘅捷徑（例如「11:15鬧鐘」），喺時鐘 app 整一個鬧鐘。\n要先喺「捷徑」app 建立 5 個捷徑：' +
-     SHIFTS.map(function(x){ return scName(shiftNotifyAt(x.start)); }).join('、'))) return;
-  scOn = !scOn; save('scAlarm', scOn ? true : null); scLabel(); render();
-});
-scLabel();
-
 /* ================= 返工更出門提示 ================= */
 function shiftNotifyAt(start){
   var p = start.split(':'), d = new Date();
@@ -993,7 +1072,7 @@ function shiftHtml(){
   if(!shiftAlarm || shiftAlarm.fired) return '<button class="shift-btn" data-shift="open">⏰ 出門提示：揀返工更</button>';
   var how = shiftAlarm.push==='on' ? '推送提醒' : shiftAlarm.push==='pending' ? '設定緊...' : shiftAlarm.push==='off' ? '要開住網頁先會提' : '';
   return '<div class="shift-on"><span class="txt">⏰ <b>' + esc(shiftAlarm.id) + ' 更</b> 返 ' + esc(shiftAlarm.start) +
-         '<span class="sub">' + dayLabel(shiftAlarm.at) + ' ' + hm(shiftAlarm.at) + ' 提你出門' + (how ? ' · ' + how : '') + (scOn ? ' · ' + hm(shiftAlarm.at - SC_EARLY*60000) + ' 鬧鐘' : '') + '</span></span>' +
+         '<span class="sub">' + dayLabel(shiftAlarm.at) + ' ' + hm(shiftAlarm.at) + ' 提你出門' + (how ? ' · ' + how : '') + '</span></span>' +
          '<button data-shift="open">更改</button><button class="x-btn" data-clear="shift" aria-label="取消">✕</button></div>';
 }
 function pickerHtml(){
@@ -1010,11 +1089,9 @@ function setShift(id){
   clearShift();
   shiftAlarm = { id:s.id, start:s.start, at:shiftNotifyAt(s.start), fired:false, push:PUSH_API ? 'pending' : '' };
   save('shiftAlarm', shiftAlarm); shiftPicker = false;
-  var a = shiftAlarm;
-  var done = PUSH_API ? setupShiftPush(a) : Promise.resolve();
+  if(PUSH_API) setupShiftPush(shiftAlarm);
   if(!PUSH_API) try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
   render();
-  done.then(function(){ if(shiftAlarm === a) runShortcut(scName(a.at)); });
 }
 async function setupShiftPush(a){
   try{

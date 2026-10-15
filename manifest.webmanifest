@@ -1,6 +1,6 @@
 {
   "name": "九巴到站時間",
-  "short_name": "九巴到站",
+  "short_name": "ETA",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -124,7 +124,13 @@ var CRON_MIN = 3;   // Cloudflare 每 3 分鐘行一次
 var STOPS = [
   { code:'YL292', name:'馬田壆', routes:['68E','68F'] },
   { code:'YL255', name:'康樂路', routes:['E36','A36'] },
-  { code:'YL369', name:'同樂街', routes:['968'] }
+  { code:'YL369', name:'同樂街', routes:['968'] },
+  { code:'YL392', name:'YOHO II', routes:['968'] },
+  { code:'YL244', name:'YOHO MIX', routes:['68E','68F'] },
+  { code:'YL242', name:'YOHO I', routes:['68E','68F'] },
+  { code:'CW767', name:'永吉街', routes:['968'] },
+  { code:'YL236', name:'大欖隧道轉車站', routes:['68E'] },
+  { code:'TY928', name:'青衣', routes:['68E'] }
 ];
 var HK = 8 * 3600e3;
 var day = (function(){ var d = new Date(Date.now() + HK + 864e5).getUTCDay(); return d===0 ? 'H' : d===6 ? 'S' : 'W'; })();   // 預設睇聽日
@@ -157,7 +163,7 @@ function showStatus(s, home){
   $('days').textContent = s.days;
 
   var failed = run && run.failed && run.failed.length ? run.failed : [];
-  var isNew = home && JSON.stringify(home.try || []).indexOf('YL369') >= 0;   // 最新版有同樂街
+  var isNew = home && JSON.stringify(home.try || []).indexOf('TY928') >= 0;   // 最新版有青衣站
   var rows = [
     ['自動定時', level==='ok' ? '<span class="ok-t">正常（每 ' + CRON_MIN + ' 分鐘）</span>'
                : level==='warn' ? '<span class="warn-t">超過 ' + Math.round(mins) + ' 分鐘冇行</span>'

@@ -84,7 +84,7 @@ export default {
       if (req.method === 'POST' && url.pathname === '/bark-test') {
         const b = await req.json();
         if (!BARK_KEY_RE.test(b.bark || '')) return json({ error: 'bad bark key' }, 400);
-        const status = await sendBark(b.bark, '九巴到站', '測試通知:Bark 設定成功').catch(() => 0);
+        const status = await sendBark(b.bark, '測試通知', 'Bark 設定成功').catch(() => 0);
         return json({ ok: status >= 200 && status < 300 }, status >= 200 && status < 300 ? 200 : 502);
       }
       if (req.method === 'GET' && url.pathname === '/') return json({ ok: true, service: 'kmb-eta-push' });
@@ -217,13 +217,15 @@ async function encryptPayload(sub, payload) {
   return concat(header, cipher);
 }
 
-async function sendBark(key, title, body) {
+// 標題一律顯示 ETA,提醒內容(例如「夠鐘出門!」)放副標題
+async function sendBark(key, subtitle, body) {
   const res = await fetch(BARK_API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify({
-      device_key: key, title, body,
-      group: '九巴到站', icon: APP_URL + 'BUS.jpg', url: APP_URL,
+      device_key: key, title: 'ETA', subtitle, body,
+      // Bark 會按網址快取 icon,換圖時要換新檔名
+      group: 'ETA', icon: APP_URL + 'ETA.jpg', url: APP_URL,
       // 重要提醒:靜音 / 勿擾都會響(響一次)
       level: 'critical', volume: 5, sound: 'alarm',
     }),
