@@ -7,6 +7,6 @@
   "background_color": "#e6ebf4",
   "theme_color": "#34599a",
   "icons": [
-    { "src": "BUS.jpg", "sizes": "980x980", "type": "image/jpeg", "purpose": "any" }
+    { "src": "BUS.jpg", "sizes": "512x512", "type": "image/jpeg", "purpose": "any" }
   ]
 }
