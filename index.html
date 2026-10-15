@@ -90,6 +90,10 @@
   .mins small{font-size:12px;font-weight:500;margin-left:2px}
   .red{color:var(--red)} .orange{color:var(--orange)} .green{color:var(--green)}
   .none{font-size:14px;color:var(--dim);padding:4px 0}
+  .est-h{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);margin:6px 0 2px}
+  .est-h::before,.est-h::after{content:'';flex:1;border-top:1px dashed var(--line)}
+  .eta-row.est{opacity:.6}
+  .eta-row.est .arr small{font-style:normal}
   .none.rmk-only{color:var(--orange)}
   .warn{font-size:13px;color:var(--orange);background:#fff4e5;padding:9px 11px;border-radius:10px;margin-bottom:10px}
   .err{font-size:13px;color:var(--red);background:#fdecee;padding:9px 11px;border-radius:10px}
@@ -167,6 +171,7 @@
 
 /* ================= 設定 ================= */
 var VERSION       = 'v2.15.0';   // 每次改版記得更新
+var LOG_API       = 'https://buseta.adrian5289.workers.dev';   // 巴士到站記錄器(估計班次用)
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -579,6 +584,7 @@ async function refresh(){
   var needArr = selArr && !ARRIVE.mins[selArr.code] && tab.cards.some(function(c){ return c.arrive; });
   if(needArr){ await ensureStops(); await ensureArriveCtx(); }
   var jobs = need.codes.map(loadEta);
+  need.codes.forEach(function(c){ if(LOGGED[c]) jobs.push(loadPred(c)); });
   if(need.ael){ jobs.push(loadMtr('AIR')); jobs.push(loadMtr('TSY')); }
   if(tab.id==='sephb' && sel968) jobs.push(load968Eta());
   if(needArr) jobs.push(loadArriveEta());
@@ -742,6 +748,53 @@ function mergeGroups(groups){
   return { merged:true, heads:groups, times:times, remark:remark };
 }
 
+/* ================= 預計班次(按記錄器過去記錄) ================= */
+// 有記錄嘅站:實時班次以外,補返由而家起計最少 1 個鐘嘅估計班次
+var LOGGED = { YL292:['68E','68F'], YL255:['E36','A36'], YL369:['968'] };
+var EST_WINDOW = 60;          // 分鐘
+var pred = {};                // code -> {date, routes}
+function hkDateStr(ms){ return new Date(ms + 8*3600e3).toISOString().slice(0, 10); }
+function loadPred(code){
+  var today = hkDateStr(Date.now());
+  if(pred[code] && pred[code].date === today) return Promise.resolve();
+  var cached = load('pred:' + code);
+  if(cached && cached.date === today){ pred[code] = cached; return Promise.resolve(); }
+  return fetchJson(LOG_API + '/predict?stop=' + code + '&route=' + LOGGED[code].join(',') + '&day=today').then(function(j){
+    pred[code] = { date:today, routes:j.routes || {} };
+    save('pred:' + code, pred[code]);   // 一日只攞一次
+  }).catch(function(){});
+}
+// 估計班次:用每班最早嘅記錄時間;跳過同實時班次相差 4 分鐘以內嘅
+function estRows(card, routes, live){
+  var p = pred[card.code]; if(!p || DEMO) return [];
+  var now = Date.now(), until = now + EST_WINDOW*60000, out = [];
+  routes.forEach(function(r){
+    var rp = p.routes[r]; if(!rp || !rp.slots) return;
+    // 九巴已經列出嘅最後一班之後先補估計(之前嗰啲應該就係實時嗰幾班)
+    var after = live.filter(function(x){ return x.route === r; }).reduce(function(m, x){ return Math.max(m, x.t + 4*60000); }, now);
+    rp.slots.forEach(function(sl){
+      var hhmm = (sl.min || sl.t).split(':'), d = new Date(now);
+      d.setHours(+hhmm[0], +hhmm[1], 0, 0);
+      var t = d.getTime();
+      if(t < now - 12*3600e3) t += 864e5;   // 過咗午夜
+      if(t <= after || t > until) return;
+      if(live.some(function(x){ return (x.route || r) === r && Math.abs(x.t - t) <= 4*60000; })) return;
+      out.push({ t:t, route:r });
+    });
+  });
+  return out.sort(function(a, b){ return a.t - b.t; });
+}
+function estHtml(card, list, showTag){
+  if(!list.length) return '';
+  return '<div class="est-h">預計班次（按過去記錄）</div>' + list.map(function(x){
+    var left = minsTo(x.t), buf = card.buffer || 0, slack = left - buf;
+    return '<div class="eta-row est"><div class="when"><div class="arr">' + (showTag ? '<span class="rno tag">' + esc(x.route) + '</span>' : '') +
+           '約 ' + hm(x.t) + '<small>預計</small></div>' +
+           (buf ? '<div class="leave">' + (slack < 0 ? '出門時間已過' : hm(x.t - buf*60000) + ' 前出門') + '</div>' : '') +
+           '</div><div class="mins">' + left + '<small>分鐘</small></div></div>';
+  }).join('');
+}
+
 function kmbCard(card){
   var st = eta[card.code] || { data:[] };
   var stale = st.lastOk && (st.error || Date.now() - st.lastOk > STALE_MS);
@@ -783,6 +836,9 @@ function kmbCard(card){
       h += etaRowHtml(x.t, { buffer:card.buffer, rmk:x.rmk, tap:canTap ? '968' : '', open:open, tag:g.merged ? x.route : '' });
       if(open){ matched = true; h += panel968(); }
     });
+    var estRoutes = (g.merged ? g.heads.map(function(x){ return x.route; }) : [g.route])
+      .filter(function(r){ return (LOGGED[card.code] || []).indexOf(r) >= 0; });
+    if(estRoutes.length) h += estHtml(card, estRows(card, estRoutes, g.times.map(function(x){ return { t:x.t, route:x.route || g.route }; })), g.merged);
     h += '</div>';
   });
   if(st.lastOk && !stale) h += '<div class="upd">更新於 ' + new Date(st.lastOk).toLocaleTimeString('en-GB') + '</div>';
