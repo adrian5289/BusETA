@@ -107,6 +107,7 @@
   .conn .wait{font-size:12px;color:var(--sub);margin-left:8px}
   .xmsg{font-size:13px;color:var(--dim);padding:2px 0}
   .foot{text-align:center;font-size:12px;color:var(--dim);padding-top:4px}
+  .sc-link{border:0;background:var(--card);color:var(--accent);border-radius:999px;font:inherit;font-size:13px;padding:7px 14px;margin-bottom:10px;cursor:pointer;box-shadow:0 2px 10px rgba(52,89,154,.08)}
   .leave b{font-weight:600}
   .rno.tag{font-size:12px;padding:0 5px;border-width:1.2px;border-radius:6px;margin-right:7px;vertical-align:2px}
   .bell{font-size:12px;color:var(--accent);margin-left:6px}
@@ -150,7 +151,7 @@
 <div id="ptr"></div>
 <main class="wrap">
   <div id="content"></div>
-  <div class="foot">數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
+  <div class="foot"><button class="sc-link" id="scset"></button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
   <iframe id="logframe" title="記錄器狀態"></iframe>
 </main>
 
@@ -159,7 +160,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.13.4';   // 每次改版記得更新
+var VERSION       = 'v2.14.0';   // 每次改版記得更新
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
 var FETCH_TIMEOUT = 8000;
@@ -898,6 +899,23 @@ document.getElementById('refresh').addEventListener('click', refresh);
 /* ================= 排程(切走 app 就暫停) ================= */
 function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); checkShift(); }
 
+/* ================= iPhone 捷徑鬧鐘 ================= */
+// 開咗之後,揀返工更時順便打開對應嘅捷徑(例如「11:15鬧鐘」),喺時鐘 app 整一個鬧鐘
+// 鬧鐘時間 = 出門時間 - SC_EARLY 分鐘;每個時間要自己喺「捷徑」app 建立一個捷徑
+var SC_EARLY = 30;
+var scOn = load('scAlarm') === true;
+function scLabel(){ document.getElementById('scset').textContent = '⏰ 捷徑鬧鐘：' + (scOn ? '開' : '關'); }
+function scName(at){ return hm(at - SC_EARLY*60000) + '鬧鐘'; }   // 例如 11:15鬧鐘
+function runShortcut(name){
+  if(scOn) location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent(name);
+}
+document.getElementById('scset').addEventListener('click', function(){
+  if(!scOn && !confirm('開啟捷徑鬧鐘？\n揀返工更時會自動打開對應嘅捷徑（例如「11:15鬧鐘」），喺時鐘 app 整一個鬧鐘。\n要先喺「捷徑」app 建立 5 個捷徑：' +
+     SHIFTS.map(function(x){ return scName(shiftNotifyAt(x.start)); }).join('、'))) return;
+  scOn = !scOn; save('scAlarm', scOn ? true : null); scLabel(); render();
+});
+scLabel();
+
 /* ================= 返工更出門提示 ================= */
 function shiftNotifyAt(start){
   var p = start.split(':'), d = new Date();
@@ -913,7 +931,7 @@ function shiftHtml(){
   if(!shiftAlarm || shiftAlarm.fired) return '<button class="shift-btn" data-shift="open">⏰ 出門提示：揀返工更</button>';
   var how = shiftAlarm.push==='on' ? '推送提醒' : shiftAlarm.push==='pending' ? '設定緊...' : shiftAlarm.push==='off' ? '要開住網頁先會提' : '';
   return '<div class="shift-on"><span class="txt">⏰ <b>' + esc(shiftAlarm.id) + ' 更</b> 返 ' + esc(shiftAlarm.start) +
-         '<span class="sub">' + dayLabel(shiftAlarm.at) + ' ' + hm(shiftAlarm.at) + ' 提你出門' + (how ? ' · ' + how : '') + '</span></span>' +
+         '<span class="sub">' + dayLabel(shiftAlarm.at) + ' ' + hm(shiftAlarm.at) + ' 提你出門' + (how ? ' · ' + how : '') + (scOn ? ' · ' + hm(shiftAlarm.at - SC_EARLY*60000) + ' 鬧鐘' : '') + '</span></span>' +
          '<button data-shift="open">更改</button><button class="x-btn" data-clear="shift" aria-label="取消">✕</button></div>';
 }
 function pickerHtml(){
@@ -930,9 +948,11 @@ function setShift(id){
   clearShift();
   shiftAlarm = { id:s.id, start:s.start, at:shiftNotifyAt(s.start), fired:false, push:PUSH_API ? 'pending' : '' };
   save('shiftAlarm', shiftAlarm); shiftPicker = false;
-  if(PUSH_API) setupShiftPush(shiftAlarm);
-  else try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
+  var a = shiftAlarm;
+  var done = PUSH_API ? setupShiftPush(a) : Promise.resolve();
+  if(!PUSH_API) try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
   render();
+  done.then(function(){ if(shiftAlarm === a) runShortcut(scName(a.at)); });
 }
 async function setupShiftPush(a){
   try{
