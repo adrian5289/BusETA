@@ -859,12 +859,9 @@ function onContent(e){
     clearReminder();
     reminder = { code:code, route:route, t:t, buf:card ? card.buffer : 0, name:card ? card.name : '', fired:false, push:PUSH_API ? 'pending' : '' };
     save('reminder', reminder);
-    var r = reminder;
-    var done = PUSH_API ? setupPush(r) : Promise.resolve();
-    if(!PUSH_API) try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
-    render();
-    done.then(function(){ if(reminder === r) runShortcut(r.t - r.buf*60000, '出門：' + r.route + ' ' + hm(r.t) + ' 到站' + (r.name ? '（' + r.name + '）' : '')); });
-    return;
+    if(PUSH_API) setupPush(reminder);
+    else try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
+    render(); return;
   }
   if(row.dataset.sel==='arr'){
     var on = selArr && selArr.code===row.dataset.code && Math.abs(t - selArr.t) <= 90000;
@@ -903,20 +900,19 @@ document.getElementById('refresh').addEventListener('click', refresh);
 function tick(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); checkReminder(); checkShift(); }
 
 /* ================= iPhone 捷徑鬧鐘 ================= */
-// 開咗之後,設定提醒(返工更 / 出門)時順便行「九巴鬧鐘」捷徑,喺時鐘 app 整一個真正鬧鐘
-// 傳畀捷徑嘅文字:「2026-10-16 09:30|B 更 11:00 返工」
-var SC_NAME = '九巴鬧鐘';
+// 開咗之後,揀返工更時順便打開對應嘅捷徑(例如「11:15鬧鐘」),喺時鐘 app 整一個鬧鐘
+// 鬧鐘時間 = 出門時間 - SC_EARLY 分鐘;每個時間要自己喺「捷徑」app 建立一個捷徑
+var SC_EARLY = 30;
 var scOn = load('scAlarm') === true;
 function scLabel(){ document.getElementById('scset').textContent = '⏰ 捷徑鬧鐘：' + (scOn ? '開' : '關'); }
-function runShortcut(at, label){
-  if(!scOn || at < Date.now()) return;
-  var d = new Date(at), p = function(n){ return String(n).padStart(2, '0'); };
-  var text = d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + '|' + label;
-  location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent(SC_NAME) + '&input=text&text=' + encodeURIComponent(text);
+function scName(at){ return hm(at - SC_EARLY*60000) + '鬧鐘'; }   // 例如 11:15鬧鐘
+function runShortcut(name){
+  if(scOn) location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent(name);
 }
 document.getElementById('scset').addEventListener('click', function(){
-  if(!scOn && !confirm('開啟捷徑鬧鐘？\n設定提醒時會自動打開「' + SC_NAME + '」捷徑，喺時鐘 app 整一個鬧鐘。\n要先喺「捷徑」app 建立呢個捷徑。')) return;
-  scOn = !scOn; save('scAlarm', scOn ? true : null); scLabel();
+  if(!scOn && !confirm('開啟捷徑鬧鐘？\n揀返工更時會自動打開對應嘅捷徑（例如「11:15鬧鐘」），喺時鐘 app 整一個鬧鐘。\n要先喺「捷徑」app 建立 5 個捷徑：' +
+     SHIFTS.map(function(x){ return scName(shiftNotifyAt(x.start)); }).join('、'))) return;
+  scOn = !scOn; save('scAlarm', scOn ? true : null); scLabel(); render();
 });
 scLabel();
 
@@ -935,7 +931,7 @@ function shiftHtml(){
   if(!shiftAlarm || shiftAlarm.fired) return '<button class="shift-btn" data-shift="open">⏰ 出門提示：揀返工更</button>';
   var how = shiftAlarm.push==='on' ? '推送提醒' : shiftAlarm.push==='pending' ? '設定緊...' : shiftAlarm.push==='off' ? '要開住網頁先會提' : '';
   return '<div class="shift-on"><span class="txt">⏰ <b>' + esc(shiftAlarm.id) + ' 更</b> 返 ' + esc(shiftAlarm.start) +
-         '<span class="sub">' + dayLabel(shiftAlarm.at) + ' ' + hm(shiftAlarm.at) + ' 提你出門' + (how ? ' · ' + how : '') + '</span></span>' +
+         '<span class="sub">' + dayLabel(shiftAlarm.at) + ' ' + hm(shiftAlarm.at) + ' 提你出門' + (how ? ' · ' + how : '') + (scOn ? ' · ' + hm(shiftAlarm.at - SC_EARLY*60000) + ' 鬧鐘' : '') + '</span></span>' +
          '<button data-shift="open">更改</button><button class="x-btn" data-clear="shift" aria-label="取消">✕</button></div>';
 }
 function pickerHtml(){
@@ -956,7 +952,7 @@ function setShift(id){
   var done = PUSH_API ? setupShiftPush(a) : Promise.resolve();
   if(!PUSH_API) try{ if('Notification' in window && Notification.permission==='default') Notification.requestPermission(); }catch(err){}
   render();
-  done.then(function(){ if(shiftAlarm === a) runShortcut(a.at, a.id + ' 更 ' + a.start + ' 返工'); });
+  done.then(function(){ if(shiftAlarm === a) runShortcut(scName(a.at)); });
 }
 async function setupShiftPush(a){
   try{
