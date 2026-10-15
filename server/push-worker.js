@@ -4,7 +4,7 @@
 //   KV 綁定 REMINDERS
 //   Cron Trigger: * * * * *   (每分鐘)
 //   (可選) 環境變數 ALLOWED_ORIGIN,預設 https://adrian5289.github.io
-//   (可選) 密鑰 BARK_KEY:設定咗就用 Bark app 推送(冇「from ...」),唔再用 Web Push
+//   推送方式:每個用戶喺網頁輸入自己嘅 Bark Key(冇「from ...」);冇 Key 就用 Web Push
 //
 // 流程:網頁 POST 一個提醒 → 每分鐘用九巴實時到站更新班次時間 →
 //       到出門時間就推送通知,然後刪除提醒。
@@ -13,6 +13,7 @@
 const KMB_ETA = 'https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/';
 const BARK_API = 'https://api.day.app/push';
 const APP_URL = 'https://adrian5289.github.io/BusETA/';
+const BARK_KEY_RE = /^[A-Za-z0-9]{8,64}$/;
 const LIST_KEY = 'reminders';
 const VAPID_KEY = 'vapid';
 const MAX_REMINDERS = 50;
@@ -37,13 +38,16 @@ export default {
     try {
       if (req.method === 'GET' && url.pathname === '/vapid') {
         const keys = await vapidKeys(env);
-        return json({ publicKey: keys.publicKey, bark: !!env.BARK_KEY });
+        return json({ publicKey: keys.publicKey });
       }
       if (req.method === 'POST' && url.pathname === '/reminders') {
         const b = await req.json();
         let sub = b.subscription;
-        if (env.BARK_KEY) sub = { endpoint: 'bark' };   // 用 Bark 就唔使瀏覽器訂閱
-        else {
+        if (b.bark) {
+          // 用戶自己嘅 Bark Key:通知只會發去佢部機
+          if (!BARK_KEY_RE.test(b.bark)) return json({ error: 'bad bark key' }, 400);
+          sub = { endpoint: 'bark:' + b.bark, bark: b.bark };
+        } else {
           if (!sub || typeof sub.endpoint !== 'string' || !sub.keys || !sub.keys.p256dh || !sub.keys.auth)
             return json({ error: 'bad subscription' }, 400);
           if (!PUSH_HOSTS.test(new URL(sub.endpoint).hostname)) return json({ error: 'unsupported push service' }, 400);
@@ -76,6 +80,12 @@ export default {
         const next = list.filter(x => x.id !== m[1]);
         if (next.length !== list.length) await env.REMINDERS.put(LIST_KEY, JSON.stringify(next));
         return json({ ok: true });
+      }
+      if (req.method === 'POST' && url.pathname === '/bark-test') {
+        const b = await req.json();
+        if (!BARK_KEY_RE.test(b.bark || '')) return json({ error: 'bad bark key' }, 400);
+        const status = await sendBark(b.bark, '九巴到站', '測試通知:Bark 設定成功').catch(() => 0);
+        return json({ ok: status >= 200 && status < 300 }, status >= 200 && status < 300 ? 200 : 502);
       }
       if (req.method === 'GET' && url.pathname === '/') return json({ ok: true, service: 'kmb-eta-push' });
       return json({ error: 'not found' }, 404);
@@ -111,8 +121,8 @@ async function runReminders(env, now = Date.now()) {
   let sent = 0;
   let keys = null;
   const send = async (r, title, body) => {
-    if (r.sub.endpoint === 'bark') return sendBark(env, title, body).catch(() => 0);
-    if (env.BARK_KEY) return 0;
+    if (r.sub.bark) return sendBark(r.sub.bark, title, body).catch(() => 0);
+    if (r.sub.endpoint === 'bark') return env.BARK_KEY ? sendBark(env.BARK_KEY, title, body).catch(() => 0) : 0;   // 舊版提醒
     keys = keys || await vapidKeys(env);
     return sendPush(r.sub, { title, body, tag: r.kind || 'leave', url: './' }, keys).catch(() => 0);
   };
@@ -207,12 +217,12 @@ async function encryptPayload(sub, payload) {
   return concat(header, cipher);
 }
 
-async function sendBark(env, title, body) {
+async function sendBark(key, title, body) {
   const res = await fetch(BARK_API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify({
-      device_key: env.BARK_KEY, title, body,
+      device_key: key, title, body,
       group: '九巴到站', icon: APP_URL + 'BUS.jpg', url: APP_URL,
       // 重要提醒:靜音 / 勿擾都會響(響一次)
       level: 'critical', volume: 5, sound: 'alarm',
