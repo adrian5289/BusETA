@@ -18,7 +18,7 @@
     --red:#d70015; --orange:#c93400; --green:#248a3d;
   }
   *{box-sizing:border-box}
-  html{-webkit-text-size-adjust:100%;background:linear-gradient(var(--accent) 50%,var(--bg) 50%)}   /* 頂部(狀態列 / 向下拉)用藍色,底部用淺色 */
+  html{-webkit-text-size-adjust:100%;background:var(--bg)}   /* 頂部向下拉嘅藍色由 header::before 負責 */
   body{margin:0;background:var(--bg);color:var(--text);
     font-family:-apple-system,"PingFang HK","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
     padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
