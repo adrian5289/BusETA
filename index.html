@@ -168,7 +168,7 @@
 </header>
 <div id="ptr"></div>
 <main class="wrap">
-  <div class="search"><input id="q" type="search" inputmode="numeric" enterkeyhint="search" autocomplete="off" placeholder="🔍 搜聽日班次，例如打 1700" aria-label="搜尋聽日班次"><div id="sres"></div></div>
+  <div class="search" id="search"><input id="q" type="search" inputmode="numeric" enterkeyhint="search" autocomplete="off" placeholder="🔍 搜聽日班次，例如打 1700" aria-label="搜尋聽日班次"><div id="sres"></div></div>
   <div id="content"></div>
   <div class="foot"><button class="bark-link" id="barkset"></button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
   <div id="modal"></div>
@@ -201,19 +201,19 @@ var KNOWN = {
 };
 
 var TABS = [
-  { id:'out', e:'🚪', name:'出門', cards:[
+  { id:'out', e:'🚪', name:'出門', search:true, cards:[
     { code:'YL292', name:'馬田壆', buffer:10, routes:[{r:'68E',hint:'青衣站'},{r:'68F',hint:'元朗公園(循環線)'}] } ] },
   { id:'yl', e:'🏡', name:'元朗回家', cards:[
     { code:'YL244', name:'YOHO MIX', routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] },
     { code:'YL242', name:'YOHO I',   routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] } ] },
-  { id:'seph', e:'💄', name:'Sephora', cards:[
+  { id:'seph', e:'💄', name:'Sephora', search:true, cards:[
     { code:'YL369', name:'同樂街', arrive:true, routes:[{r:'968',hint:'銅鑼灣'}] },
     { code:'YL392', name:'YOHO II', arrive:true, routes:[{r:'968',hint:'銅鑼灣'}] } ] },
   { id:'sephb', e:'🌃', name:'Sephora回家', cards:[
     { code:'CW767', name:'永吉街', xfer:'968', routes:[{r:'968',hint:'元朗'}] },
     { code:'YL236', name:'大欖隧道轉車站', routes:[{r:'68E',hint:'元朗公園'}] },
     { code:'YL244', name:'YOHO MIX', routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] } ] },
-  { id:'air', e:'✈️', name:'機場', cards:[
+  { id:'air', e:'✈️', name:'機場', search:true, cards:[
     { code:'YL255', name:'康樂路', buffer:20, routes:[{r:'E36',hint:'機場(地面運輸中心)'},{r:'A36',hint:'機場(地面運輸中心)'}] } ] },
   { id:'aph', e:'🚆', name:'機場回家', cards:[
     { kind:'ael', name:'機場站', sub:'港鐵機場快綫' },
@@ -771,8 +771,7 @@ function mergeGroups(groups){
 
 /* ================= 預計班次(按記錄器過去記錄) ================= */
 // 有記錄嘅站:實時班次以外,補返由而家起計最少 1 個鐘嘅估計班次
-var LOGGED = { YL292:['68E','68F'], YL255:['E36','A36'], YL369:['968'], YL392:['968'],
-               YL244:['68E','68F'], YL242:['68E','68F'], CW767:['968'], YL236:['68E'], TY928:['68E'] };
+var LOGGED = { YL292:['68E','68F'], YL255:['E36','A36'], YL369:['968'], YL392:['968'] };
 var EST_WINDOW = 60;          // 分鐘
 var pred = {};                // code -> {date, routes}
 function hkDateStr(ms){ return new Date(ms + 8*3600e3).toISOString().slice(0, 10); }
@@ -864,8 +863,7 @@ function searchCard(card, q){
   var tag = routes.length > 1;
   var row = function(x, near){
     var extra = card.buffer ? hhmm(x.m - card.buffer) + ' 前出門'
-              : card.arrive && ARRIVE.mins[card.code] ? '約 ' + hhmm(x.m + ARRIVE.mins[card.code]) + ' 到' + ARRIVE.name
-              : card.xfer === '968' ? XFER968.map(function(z){ return z.name.replace('轉車站', '') + ' ' + hhmm(x.m + z.mins); }).join(' · ') : '';
+              : card.arrive && ARRIVE.mins[card.code] ? '約 ' + hhmm(x.m + ARRIVE.mins[card.code]) + ' 到' + ARRIVE.name : '';
     return '<div class="srow' + (near ? ' near' : '') + '"><span class="st">' + (tag ? '<span class="rno tag">' + esc(x.route) + '</span>' : '') +
            '約 ' + hhmm(x.m) + '</span><span class="sx">' + extra + '</span></div>';
   };
@@ -876,7 +874,9 @@ function searchCard(card, q){
 }
 function renderSearch(){
   var box = document.getElementById('sres');
-  var q = parseQ(qInput.value);
+  var on = !!tabById(active).search;   // 只係出門嘅頁有搜尋,回家嗰啲唔使
+  document.getElementById('search').style.display = on ? '' : 'none';
+  var q = on ? parseQ(qInput.value) : null;
   if(q == null){ box.innerHTML = ''; document.getElementById('content').style.display = ''; return; }
   document.getElementById('content').style.display = 'none';   // 搜尋時收起實時班次
   if(q < 0){ box.innerHTML = '<div class="sres-h">時間唔啱，例如打 1700 或者 930</div>'; return; }

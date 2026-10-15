@@ -2,17 +2,12 @@
 const KMB = 'https://data.etabus.gov.hk/v1/transport/kmb/';
 
 // 要記錄嘅站同路線;STOPS 未有 ID 嘅站,會用九巴站點清單按站牌編號搵(每星期更新一次)
-const STOPS = { YL292: 'C187E3771B7032EC', YL255: '8BE58FAD7E9C94C7', YL244: '21DA1E33BF580B96', YL242: '6A4B371546D489BF' };
+const STOPS = { YL292: 'C187E3771B7032EC', YL255: '8BE58FAD7E9C94C7' };
 const WATCH = {
   YL292: ['68E', '68F'],            // 馬田壆
   YL255: ['E36', 'A36'],            // 康樂路
   YL369: ['968'],                   // 同樂街
-  YL392: ['968'],                   // YOHO II
-  YL244: ['68E', '68F'],            // YOHO MIX
-  YL242: ['68E', '68F'],            // YOHO I
-  CW767: ['968'],                   // 永吉街
-  YL236: ['68E'],                   // 大欖隧道轉車站
-  TY928: ['68E']                    // 青衣
+  YL392: ['968']                    // YOHO II
 };
 
 // 每條線要估計嘅方向(目的地,啱其中一個就得);九巴會同時回傳兩個方向
@@ -21,12 +16,7 @@ const HINT = {
   YL292: { '68E': ['青衣'], '68F': ['元朗公園'] },
   YL255: { E36: AIRPORT, A36: AIRPORT },
   YL369: { '968': ['銅鑼灣'] },
-  YL392: { '968': ['銅鑼灣'] },
-  YL244: { '68E': ['元朗公園'], '68F': ['元朗公園'] },
-  YL242: { '68E': ['元朗公園'], '68F': ['元朗公園'] },
-  CW767: { '968': ['元朗'] },
-  YL236: { '68E': ['元朗公園'] },
-  TY928: { '68E': ['元朗公園'] }
+  YL392: { '968': ['銅鑼灣'] }
 };
 
 const MATCH_MS = 4 * 60e3;   // 前後兩次見到同一架車,ETA 相差唔超過 4 分鐘
@@ -217,7 +207,7 @@ export default {
         const c = await db.prepare('SELECT COUNT(*) AS n, COUNT(DISTINCT date) AS d FROM arrivals').first();
         return json({ arrivals: c.n, days: c.d, lastRun: await getState(db, 'lastRun') });
       }
-      return json({ ok: true, name: 'BusETA 記錄器', try: ['/status', '/run', '/predict?stop=YL292&route=68E,68F', '/predict?stop=YL255&route=E36,A36', '/predict?stop=YL369&route=968', '/predict?stop=TY928&route=68E'] });
+      return json({ ok: true, name: 'BusETA 記錄器', try: ['/status', '/run', '/predict?stop=YL292&route=68E,68F', '/predict?stop=YL255&route=E36,A36', '/predict?stop=YL369&route=968', '/predict?stop=YL392&route=968'] });
     } catch (e) {
       return json({ error: String(e && e.message || e) }, 500);
     }
