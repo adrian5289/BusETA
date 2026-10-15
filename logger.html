@@ -180,7 +180,7 @@ function showPredict(results){
       var times = p && p.slots && p.slots.length
         ? p.slots.map(function(x, j){
             var key = s.code + '|' + r + '|' + j, on = openKey === key;
-            return '<button class="t" data-key="' + key + '" aria-expanded="' + on + '">' + x.t + '</button>' + (on ? histHtml(p, x) : '');
+            return '<button class="t" data-key="' + key + '" aria-expanded="' + on + '">' + (x.min || x.t) + '</button>' + (on ? histHtml(p, x) : '');
           }).join('')
         : '<span class="none">' + (p ? '資料未夠（用咗 ' + p.days + ' 日記錄）' : '載入失敗') + '</span>';
       return '<div class="route"><span class="rno">' + r + '</span>' + (p && p.dest ? '<span class="dest">往 ' + esc(p.dest) + '</span>' : '') +
@@ -193,7 +193,7 @@ function showPredict(results){
 var WEEK = ['日','一','二','三','四','五','六'];
 function histHtml(p, x){
   var dates = (p.dates || []).slice().sort().reverse();
-  return '<div class="hist"><div class="hist-h">' + x.t + ' 呢班：最近 ' + dates.length + ' 日（' + Object.keys(x.seen || {}).length + ' 日有記錄）</div>' +
+  return '<div class="hist"><div class="hist-h">' + (x.min || x.t) + ' 呢班：最近 ' + dates.length + ' 日（' + Object.keys(x.seen || {}).length + ' 日有記錄）</div>' +
     dates.map(function(d){
       var w = WEEK[new Date(d + 'T00:00:00Z').getUTCDay()], t = x.seen && x.seen[d];
       return '<div class="r"><span>' + d.slice(5).replace('-', '/') + '（' + w + '）</span>' +
