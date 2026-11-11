@@ -5,7 +5,7 @@ self.addEventListener('activate', function(e){ e.waitUntil(self.clients.claim())
 self.addEventListener('push', function(e){
   var d = {};
   try{ d = e.data ? e.data.json() : {}; }catch(err){}
-  e.waitUntil(self.registration.showNotification(d.title || '九巴到站', {
+  e.waitUntil(self.registration.showNotification(d.title || 'ETA', {
     body: d.body || '', icon: 'BUS.jpg', badge: 'BUS.jpg',
     tag: d.tag || 'leave', renotify: true, data: { url: d.url || './' }
   }));
