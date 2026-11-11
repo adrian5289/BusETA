@@ -319,11 +319,16 @@ async function fetchJson(url){
 }
 
 /* ================= 站點清單(每星期更新一次) ================= */
-async function ensureStops(){
-  if(stops) return;
+// want:要用到嘅站牌編號;快取清單入面搵唔到就即刻重新攞(每次開 app 最多一次),唔使等 7 日
+var stopsRefetched = false;
+async function ensureStops(want){
+  var lacking = function(){ return (want || []).some(function(c){ return !KNOWN[c] && !(stops && stops[c]); }); };
+  if(stops && !lacking()) return;
   save('kmbStops', null);   // 舊版快取(冇站名)
   var cached = load('kmbStops2');
-  if(cached && Date.now() - cached.ts < 7*864e5){ buildStops(cached.rows); return; }
+  if(!stops && cached && Date.now() - cached.ts < 7*864e5){ buildStops(cached.rows); if(!lacking()) return; }
+  if(stopsRefetched) return;
+  stopsRefetched = true;
   try{
     var json = await fetchJson(KMB + 'stop');
     var rows = [];
@@ -331,10 +336,11 @@ async function ensureStops(){
       var m = /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_tc || '') || /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_en || '');
       rows.push([s.stop, m ? m[1] : '', +s.lat, +s.long, s.name_tc || '']);
     });
+    if(rows.length < 1000) throw new Error('站點清單唔齊');   // 唔齊嘅清單唔好記住
     save('kmbStops2', { ts:Date.now(), rows:rows });
     buildStops(rows);
   }catch(e){
-    if(cached) buildStops(cached.rows);
+    if(cached && !stops) buildStops(cached.rows);
   }
 }
 function buildStops(rows){
@@ -349,6 +355,7 @@ function buildStops(rows){
 async function loadEta(code){
   var id = stopId(code);
   var st = eta[code] || (eta[code] = { data:[], lastOk:null, error:false });
+  st.noId = false;
   if(!id){ st.error = !!stops; st.noId = !!stops; return; }
   try{
     var json = await fetchJson(KMB + 'stop-eta/' + id);
@@ -600,7 +607,7 @@ async function refresh(){
   var tab = tabById(active);
   var need = neededFor(tab);
   var missing = need.codes.some(function(c){ return !KNOWN[c]; });
-  if(missing || need.r968) await ensureStops();
+  if(missing || need.r968) await ensureStops(need.codes);
   if(tab.id==='sephb') await ensure968Ctx();
   var needArr = selArr && !ARRIVE.mins[selArr.code] && tab.cards.some(function(c){ return c.arrive; });
   if(needArr){ await ensureStops(); await ensureArriveCtx(); }
