@@ -1,8 +1,11 @@
 // BusETA 記錄器:每幾分鐘記低巴士大約幾點到站,再估計聽日班次
 const KMB = 'https://data.etabus.gov.hk/v1/transport/kmb/';
 
-// 要記錄嘅站同路線;STOPS 未有 ID 嘅站,會用九巴站點清單按站牌編號搵(每星期更新一次)
-const STOPS = { YL292: 'C187E3771B7032EC', YL255: '8BE58FAD7E9C94C7' };
+// 要記錄嘅站同路線;STOPS 未有 ID 嘅站,會用九巴站點清單按站牌編號搵(九巴站名已經冇編號,新站要寫低 ID)
+const STOPS = {
+  YL292: 'C187E3771B7032EC', YL255: '8BE58FAD7E9C94C7', YL369: 'C296D9B3313C1F77', YL392: '723EF8D7809D3ADB',
+  YL244: '21DA1E33BF580B96', YL242: '6A4B371546D489BF', CW767: '1D8A902219897402', YL236: 'E481F7170B1F6FC3', TY928: 'A39682B5A68D668F'
+};
 const WATCH = {
   YL292: ['68E', '68F'],            // 馬田壆
   YL255: ['E36', 'A36'],            // 康樂路
