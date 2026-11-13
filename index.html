@@ -174,7 +174,7 @@
 <main class="wrap">
   <div class="search" id="search"><input id="q" type="search" inputmode="numeric" enterkeyhint="search" autocomplete="off" placeholder="🔍 搜聽日班次，例如打 1700" aria-label="搜尋聽日班次"><div id="sres"></div></div>
   <div id="content"></div>
-  <div class="foot"><button class="bark-link" id="barkset"></button> <button class="bark-link" id="copyids">📋 複製站 ID</button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
+  <div class="foot"><button class="bark-link" id="barkset"></button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
   <div id="modal"></div>
   <iframe id="logframe" title="記錄器狀態"></iframe>
 </main>
@@ -184,7 +184,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.16.3';   // 每次改版記得更新
+var VERSION       = 'v2.16.4';   // 每次改版記得更新
 var LOG_API       = 'https://buseta.adrian5289.workers.dev';   // 巴士到站記錄器(估計班次用)
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
@@ -198,10 +198,11 @@ var AEL_WALK_MIN  = 8;    // 青衣月台行去 68E 車站
 var KMB = 'https://data.etabus.gov.hk/v1/transport/kmb/';
 var MTR = 'https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php?line=AEL&sta=';
 
-// 已知站點 ID;其餘會由九巴站點清單用站牌編號自動對返
+// 站點 ID(九巴開放數據嘅站名已經冇站牌編號,所以全部寫死);新站先會用路線同站名去搵
 var KNOWN = {
   YL292:'C187E3771B7032EC', YL244:'21DA1E33BF580B96', YL242:'6A4B371546D489BF',
-  YL255:'8BE58FAD7E9C94C7'
+  YL255:'8BE58FAD7E9C94C7', YL369:'C296D9B3313C1F77', YL392:'723EF8D7809D3ADB',
+  CW767:'1D8A902219897402', YL236:'E481F7170B1F6FC3', TY928:'A39682B5A68D668F'
 };
 
 var TABS = [
@@ -1216,15 +1217,6 @@ async function saveBark(){
   }catch(e){ msg.textContent = '⚠️ 已儲存，但連唔到推送伺服器，請稍後再試'; }
 }
 document.getElementById('barkset').addEventListener('click', openBark);
-// 暫時用:將手機搵到嘅站 ID 複製出嚟,之後寫死落 KNOWN
-document.getElementById('copyids').addEventListener('click', function(){
-  var codes = {};
-  TABS.forEach(function(tb){ tb.cards.forEach(function(c){ if(c.code) codes[c.code] = 1; }); });
-  var txt = Object.keys(codes).map(function(c){ return c + '=' + (stopId(c) || '未搵到') + (stopFix[c] && stopFix[c].manual ? ' (手動)' : ''); }).join('\n');
-  var done = function(){ alert('已複製:\n' + txt); };
-  try{ navigator.clipboard.writeText(txt).then(done, function(){ prompt('複製以下內容:', txt); }); }
-  catch(e){ prompt('複製以下內容:', txt); }
-});
 document.getElementById('modal').addEventListener('click', function(e){
   var b = e.target.closest('[data-bark]'); if(!b) return;
   var act = b.dataset.bark;
