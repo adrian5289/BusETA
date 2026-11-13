@@ -40,6 +40,11 @@ function destMatch(dest, hints) {
   const a = normDest(dest);
   return !a || !hints || hints.some(h => { const b = normDest(h); return a.includes(b) || b.includes(a); });
 }
+// 站名入面嘅站牌編號,例如「同樂街 (YL369)」;全形括號或者冇括號都得
+function plateCode(name) {
+  const m = /[(（]\s*([A-Z]{2}\d{3}[A-Za-z]?)\s*[)）]/.exec(name || '') || /(?:^|[^A-Z])([A-Z]{2}\d{3})(?![0-9])/.exec(name || '');
+  return m ? m[1] : '';
+}
 function hhmm(min) { const m = Math.round(min); return String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); }
 
 async function getJson(url) {
@@ -74,8 +79,8 @@ async function resolveStops(db, now) {
     const json = await getJson(KMB + 'stop');
     const map = {};
     for (const s of json.data || []) {
-      const m = /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_tc || '') || /\(([A-Z]{2}\d{3}[a-z]?)\)/.exec(s.name_en || '');
-      if (m && missing.includes(m[1]) && !map[m[1]]) map[m[1]] = s.stop;
+      const code = plateCode(s.name_tc) || plateCode(s.name_en);
+      if (code && missing.includes(code) && !map[code]) map[code] = s.stop;
     }
     await setState(db, 'stops', { ts: now, map }).run();
     return map;
