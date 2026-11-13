@@ -174,7 +174,7 @@
 <main class="wrap">
   <div class="search" id="search"><input id="q" type="search" inputmode="numeric" enterkeyhint="search" autocomplete="off" placeholder="🔍 搜聽日班次，例如打 1700" aria-label="搜尋聽日班次"><div id="sres"></div></div>
   <div id="content"></div>
-  <div class="foot"><button class="bark-link" id="barkset"></button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
+  <div class="foot"><button class="bark-link" id="barkset"></button> <button class="bark-link" id="copyids">📋 複製站 ID</button><br>數據來源：KMB / LWB 開放數據、港鐵開放數據<br><span id="ver"></span></div>
   <div id="modal"></div>
   <iframe id="logframe" title="記錄器狀態"></iframe>
 </main>
@@ -184,7 +184,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.16.2';   // 每次改版記得更新
+var VERSION       = 'v2.16.3';   // 每次改版記得更新
 var LOG_API       = 'https://buseta.adrian5289.workers.dev';   // 巴士到站記錄器(估計班次用)
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
@@ -1216,6 +1216,15 @@ async function saveBark(){
   }catch(e){ msg.textContent = '⚠️ 已儲存，但連唔到推送伺服器，請稍後再試'; }
 }
 document.getElementById('barkset').addEventListener('click', openBark);
+// 暫時用:將手機搵到嘅站 ID 複製出嚟,之後寫死落 KNOWN
+document.getElementById('copyids').addEventListener('click', function(){
+  var codes = {};
+  TABS.forEach(function(tb){ tb.cards.forEach(function(c){ if(c.code) codes[c.code] = 1; }); });
+  var txt = Object.keys(codes).map(function(c){ return c + '=' + (stopId(c) || '未搵到') + (stopFix[c] && stopFix[c].manual ? ' (手動)' : ''); }).join('\n');
+  var done = function(){ alert('已複製:\n' + txt); };
+  try{ navigator.clipboard.writeText(txt).then(done, function(){ prompt('複製以下內容:', txt); }); }
+  catch(e){ prompt('複製以下內容:', txt); }
+});
 document.getElementById('modal').addEventListener('click', function(e){
   var b = e.target.closest('[data-bark]'); if(!b) return;
   var act = b.dataset.bark;
