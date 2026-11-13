@@ -74,13 +74,14 @@ async function resolveStops(db, now) {
   const missing = Object.keys(WATCH).filter(c => !STOPS[c]);
   if (!missing.length) return {};
   const cached = await getState(db, 'stops');
-  if (cached && now - cached.ts < 7 * 864e5 && missing.every(c => cached.map[c])) return cached.map;
+  // 全部搵到就 7 日先更新;有搵唔到嘅,最多一日試一次(唔好每 3 分鐘下載成份清單)
+  if (cached && now - cached.ts < (missing.every(c => cached.map[c]) ? 7 : 1) * 864e5) return cached.map;
   try {
     const json = await getJson(KMB + 'stop');
-    const map = {};
+    const map = { ...(cached ? cached.map : {}) };   // 九巴站名已經冇站牌編號,保留以前搵到嘅 ID
     for (const s of json.data || []) {
       const code = plateCode(s.name_tc) || plateCode(s.name_en);
-      if (code && missing.includes(code) && !map[code]) map[code] = s.stop;
+      if (code && missing.includes(code)) map[code] = s.stop;
     }
     await setState(db, 'stops', { ts: now, map }).run();
     return map;

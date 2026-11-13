@@ -95,6 +95,10 @@
   .eta-row.est{opacity:.6}
   .eta-row.est .arr small{font-style:normal}
   .none.rmk-only{color:var(--orange)}
+.unpick{border:0;background:none;color:var(--accent);font:inherit;font-size:12px;padding:0;cursor:pointer;text-decoration:underline}
+  .pick-h{font-size:13px;color:var(--sub);margin-bottom:8px}
+  .pick{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto}
+  .pick button{border:0;border-radius:10px;background:var(--accent-soft);color:var(--text);font:inherit;font-size:15px;text-align:left;padding:9px 12px;cursor:pointer}
   .search{margin-bottom:14px}
   .search input{width:100%;-webkit-appearance:none;appearance:none;border:0;border-radius:14px;background:var(--card);color:var(--text);font:inherit;font-size:16px;padding:11px 14px;box-shadow:0 2px 10px rgba(52,89,154,.08)}
   .search input:focus{outline:2px solid var(--accent-soft)}
@@ -180,7 +184,7 @@
 'use strict';
 
 /* ================= 設定 ================= */
-var VERSION       = 'v2.16.1';   // 每次改版記得更新
+var VERSION       = 'v2.16.2';   // 每次改版記得更新
 var LOG_API       = 'https://buseta.adrian5289.workers.dev';   // 巴士到站記錄器(估計班次用)
 var PUSH_API      = 'https://kmb-eta-push.adrian5289.workers.dev';   // 出門提醒推送伺服器 (Cloudflare Worker) 網址,例如 https://kmb-eta-push.xxx.workers.dev;留空 = 只喺網頁開住時提醒
 var REFRESH_MS    = 30000;
@@ -210,8 +214,8 @@ var TABS = [
     { code:'YL369', name:'同樂街', arrive:true, routes:[{r:'968',hint:'銅鑼灣'}] },
     { code:'YL392', name:'YOHO II', arrive:true, routes:[{r:'968',hint:'銅鑼灣'}] } ] },
   { id:'sephb', e:'🌃', name:'Sephora回家', cards:[
-    { code:'CW767', name:'永吉街', xfer:'968', routes:[{r:'968',hint:'元朗'}] },
-    { code:'YL236', name:'大欖隧道轉車站', routes:[{r:'68E',hint:'元朗公園'}] },
+    { code:'CW767', name:'永吉街', seq:10, xfer:'968', routes:[{r:'968',hint:'元朗'}] },
+    { code:'YL236', name:'大欖隧道轉車站', seq:6, routes:[{r:'68E',hint:'元朗公園'}] },
     { code:'YL244', name:'YOHO MIX', routes:[{r:'68E',hint:'元朗公園'},{r:'68F',hint:'元朗公園(循環線)'}] } ] },
   { id:'air', e:'✈️', name:'機場', search:true, cards:[
     { code:'YL255', name:'康樂路', buffer:20, routes:[{r:'E36',hint:'機場(地面運輸中心)'},{r:'A36',hint:'機場(地面運輸中心)'}] } ] },
@@ -327,9 +331,8 @@ async function ensureStops(want){
   save('kmbStops', null);   // 舊版快取(冇站名)
   var cached = load('kmbStops2');
   if(!stops && cached && Date.now() - cached.ts < 7*864e5){ buildStops(cached.rows); if(!lacking()) return; }
-  if(stopsRefetched) return;
-  stopsRefetched = true;
-  try{
+  if(!stopsRefetched) try{
+    stopsRefetched = true;
     var json = await fetchJson(KMB + 'stop');
     var rows = [];
     (json.data||[]).forEach(function(s){
@@ -341,7 +344,9 @@ async function ensureStops(want){
   }catch(e){
     if(cached && !stops) buildStops(cached.rows);
   }
-  if(stops) await Promise.all((want || []).filter(function(c){ return !stopId(c); }).map(findByRoute));
+  if(stops) await Promise.all((want || []).filter(function(c){ return !stopId(c) && !routeTried[c]; }).map(function(c){
+    routeTried[c] = true; return findByRoute(c);
+  }));
 }
 // 站名入面嘅站牌編號,例如「大欖隧道轉車站 (YL236)」;全形括號或者冇括號都得
 function plateCode(name){
@@ -349,7 +354,9 @@ function plateCode(name){
   return m ? m[1] : '';
 }
 // 後備:站點清單搵唔到站牌編號,就喺嗰條線(啱方向)經過嘅站入面,按站名搵
-var stopFix = load('stopFix') || {};   // code -> {id, ts}
+var stopFix = load('stopFix') || {};   // code -> {id, ts, manual}
+var routeTried = {};                  // 每次開 app 每個站只按路線搵一次
+var stopChoices = {};                 // code -> {route, ids}:嗰條線(啱方向)經過嘅站
 async function findByRoute(code){
   var card = null;
   TABS.forEach(function(tb){ tb.cards.forEach(function(c){ if(c.code === code && !card) card = c; }); });
@@ -363,10 +370,13 @@ async function findByRoute(code){
         var info = await fetchJson(KMB + 'route/' + rt.r + '/' + bound + '/1');
         if(rt.hint && !(info.data && destMatch(info.data.dest_tc, rt.hint))) continue;
         var rs = await fetchJson(KMB + 'route-stop/' + rt.r + '/' + bound + '/1');
-        var hit = (rs.data || []).map(function(x){ return x.stop; }).filter(function(id){
-          return stopById[id] && normDest(stopById[id].name).indexOf(name) >= 0;
-        })[0];
+        var list = rs.data || [], ids = list.map(function(x){ return x.stop; });
+        var named = function(id){ return stopById[id] && normDest(stopById[id].name).indexOf(name) >= 0; };
+        // 有同名站(例如兩個「大欖隧道轉車站」)就用九巴 app 嘅站序
+        var bySeq = card.seq && list.filter(function(x){ return +x.seq === card.seq && named(x.stop); })[0];
+        var hit = bySeq ? bySeq.stop : ids.filter(named)[0];
         if(hit){ stopFix[code] = { id:hit, ts:Date.now() }; save('stopFix', stopFix); return; }
+        if(!stopChoices[code]) stopChoices[code] = { route:rt.r, list:list };   // 搵唔到就俾用戶自己揀
       }catch(e){}
     }
   }
@@ -929,9 +939,14 @@ function kmbCard(card){
   var st = eta[card.code] || { data:[] };
   var stale = st.lastOk && (st.error || Date.now() - st.lastOk > STALE_MS);
   var h = '<section class="stop' + (stale ? ' stale' : '') + '"><div class="stop-h"><div><div class="stop-name">' + esc(card.name) + '</div>' +
-          '<div class="stop-code">' + esc(card.code) + '</div></div>' +
+          '<div class="stop-code">' + esc(card.code) + (stopFix[card.code] && stopFix[card.code].manual && !KNOWN[card.code] ? ' · <button class="unpick" data-unpick="' + esc(card.code) + '">改站</button>' : '') + '</div></div>' +
           (card.buffer ? '<span class="buffer">預 ' + card.buffer + ' 分鐘出門</span>' : '') + '</div>';
-  if(st.noId) return h + '<div class="err">搵唔到呢個站，請檢查站牌編號<br><small>（九巴站點清單：' + Object.keys(stopById).length + ' 個站，' + Object.keys(stops || {}).length + ' 個有編號）</small></div></section>';
+  if(st.noId){
+    var ch = stopChoices[card.code];
+    if(!ch) return h + '<div class="err">搵唔到呢個站，請檢查站牌編號<br><small>（九巴站點清單：' + Object.keys(stopById).length + ' 個站，' + Object.keys(stops || {}).length + ' 個有編號）</small></div></section>';
+    return h + '<div class="pick-h">九巴站名已經冇站牌編號，請揀返邊個係「' + esc(card.name) + '」（' + esc(ch.route) + ' 經過嘅站，號碼同九巴 app 一樣）：</div><div class="pick">' +
+      ch.list.map(function(x, i){ return '<button data-pickstop="' + esc(card.code) + '|' + esc(x.stop) + '">' + (x.seq || i + 1) + '. ' + esc(stopById[x.stop] ? stopById[x.stop].name : x.stop) + '</button>'; }).join('') + '</div></section>';
+  }
   if(st.error && !st.lastOk) return h + '<div class="err">⚠️ 無法載入數據，請檢查網絡後重新整理</div></section>';
   if(stale) h += '<div class="warn">⚠️ 更新失敗，以下係 ' + new Date(st.lastOk).toLocaleTimeString('en-GB') + ' 嘅舊資料</div>';
   var groups = groupsFor(card, st);
@@ -1032,6 +1047,18 @@ function onContent(e){
     if(shiftPicker && e.target.classList.contains('sheet-bg')){ shiftPicker = false; render(); return; }
   }
   if(e.type==='click' && e.target.closest('[data-demo]')){ setDemo(false); return; }
+  var ps = e.type==='click' && e.target.closest('[data-pickstop]');
+  var up = e.type==='click' && e.target.closest('[data-unpick]');
+  if(up){
+    delete stopFix[up.dataset.unpick]; save('stopFix', stopFix); delete routeTried[up.dataset.unpick]; delete stopChoices[up.dataset.unpick];
+    render(); refresh(); return;
+  }
+  if(ps){
+    var pp = ps.dataset.pickstop.split('|');
+    stopFix[pp[0]] = { id:pp[1], ts:Date.now(), manual:true }; save('stopFix', stopFix);
+    if(eta[pp[0]]) eta[pp[0]].noId = false;
+    render(); refresh(); return;
+  }
   var x = e.target.closest('.x-btn');
   if(x && e.type==='click'){
     if(x.dataset.clear==='968'){ sel968 = null; save('sel968', null); }
